@@ -30,7 +30,7 @@
   read as walls); the **PXMS/CAM_MS split** - 0.18 px/ms sprite travel vs the camera's lagging scenery
   scroll, and an align search window that had made the old 0.10 constant self-confirming; `foldStep()`
   so an unlocatable sprite cannot freeze the map; `slam nudge` as the in-mapper walkability probe;
-  `roomN-fit.png`; `tmp_palette.mjs` / `tmp_crop.mjs`; `logs/tmp_rate.mjs` for the rate. `selftest`
+  `roomN-fit.png`; `tmp_palette.mjs` / `tmp_crop.mjs`; `tools/rate.mjs` for the rate. `selftest`
   green, including the new lost-step case and the widened anti-alias case.
 
 ## Status (2026-10-17, session 3): the walker can cross the Ruins brick bridge

@@ -270,7 +270,7 @@ node src/harness.mjs                                 # sidecar (ws on 127.0.0.1:
 
 ### Two different numbers were hiding in one constant
 - **My sprite travels at 0.18 px/ms; the scenery scrolls slower than that.** Measured separately, on
-  purpose: `logs/tmp_rate.mjs` walks a fixed hold and reads **my sprite position** before/after (in the
+  purpose: `tools/rate.mjs` walks a fixed hold and reads **my sprite position** before/after (in the
   Ruins rooms the whole room fits the window, so the camera never scrolls and this is the only honest
   measurement) - three 500 ms and two 1000 ms holds gave 0.174-0.189 px/ms. `src/motion.mjs match`
   measures the **scenery** instead, and gave ~90 px for a 900 ms hold because the overworld camera
