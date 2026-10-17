@@ -357,3 +357,19 @@ results. No engine internals, no outside walkthroughs.
 - The mapper does cross doorways: at step 22 of one walk the screen faded and the matcher answered
   "that is room 0 again (119 landmarks line up)" - the first transition + identity pair confirmed
   on the live game rather than in a test.
+
+### The channel room's puzzle is a spike field, and its bridge is a brick block (run 1)
+- One north-south water channel, crossed by a single brick block mid-channel: walkable, proven by
+  footfalls (`evidence/run1/25_*`). Colour had it painted solid, which is why routed crossings of
+  that channel kept failing while walking them never did.
+- East of that bridge the whole passage is spike tiles, and Toriel stands beside it with
+  "* There is another puzzle in this room. . ." / "* I wonder if you can solve it"
+  (`evidence/run1/27_*`). The corridor west of her dead-ends against a raised ledge, and her body
+  blocks the one row that reaches the bridge, so the crossing waits on her moving.
+- Signs: a floor signpost re-opens while I stand facing it, so the reading move is `press z` (twice
+  for a two-page sign) and then walk away without pressing again. Grey wall plaques give no text from
+  the floor - decorative. The cream dog statue in the octagonal room is non-interactive: three `z` at
+  contact, nothing.
+- Some room pairs here change with no fade. The walk logged a fade and then "that is room 0 again
+  (117 landmarks line up)", and walking north out of the statue room entered a Toriel room with no
+  dark frame at all. The identity matcher still needs the paint-contradicts-grid test; unfixed.

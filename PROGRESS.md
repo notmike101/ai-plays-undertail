@@ -1,5 +1,16 @@
 # Progress
 
+## Status (2026-10-17, session 3): the walker can cross the Ruins brick bridge
+- `selftest` green. Pushed this session: thin brick (`f1980ee`), `legalAim` (`ebe3d49`), the smear
+  guard and its retry bar (`0633f18`, `71704a2`), repair-before-finish plus `plankGoal` compactness
+  (`121e009`), sidestep-before-reverse (`965b286`).
+- `walk "to x y" N` refuses instantly when the grid calls the goal or the route solid; `N` is the
+  step budget (default 60).
+- Hand-driving invalidates the grid: any `play.mjs hold` between slam runs means `slam init` after it.
+- Two reading rules. A hold that ends is not a wall - re-hold before concluding blocked (0.18 px/ms,
+  so 200 ms is ~36 px). And `play.mjs text` lags the frame: a `shot` is the authority on whether a
+  box is open.
+
 ## Status (2026-10-17, session 2): the map is now something I can remember
 - `src/slam.mjs` is the mapper and route planner: capture window x 2..641, y 40..515 (the
   window title bar is outside it), a 2 px-per-cell grid per room, colour classes (floor, pale

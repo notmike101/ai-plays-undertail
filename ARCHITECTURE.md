@@ -204,3 +204,22 @@ node src/harness.mjs                                 # sidecar (ws on 127.0.0.1:
 - Room identity has been confirmed on the live game, not just in tests: a real fade at step 22 came
   back as "that is room 0 again (119 landmarks line up)", and the reused grid absorbed the new paint
   (walkable 63,480 -> 79,072).
+- The mortar vote needs a run at least 4 cells thick. A BRICK band 3 cells or thinner is
+  `thinBrick`: probeable, passable, exempt from `bodyFit`. The brick block that bridges the water
+  channel is exactly that, and painting it solid is why every `walk "to"` across the channel
+  answered "no path" while my feet kept proving it floor.
+- `legalAim`: the 8-cell lookahead target must be legal on the vetted graph, vetoed edges included.
+  Without it the step aims through an edge the graph already refused - walk35 sawed 34 steps into a
+  vetoed edge before this existed.
+- A grabbed frame with fewer than 40 distinct scanlines is a torn read, not a picture, so `grab`
+  retries it. Measured: a quiet real frame has ~91 distinct scanlines, a real smear ~2.
+- `pickFrontier` runs one repair pass (seams, footprints, thin brick) before declaring a room
+  finished; paint order can leave a room that looks complete and is not routable.
+- A `plankGoal` candidate must be a compact blob (<= 40 cells per axis). Ruins floor is brown brick:
+  74k WOOD cells in two 829x195 regions, so colour alone names the floor itself as a plank. One real
+  object was 42 cells at world -622,78. `tmp_census.mjs` is what showed this.
+- A contact-break sidesteps perpendicular before reversing. Reversing aimed me back into the same NPC
+  trigger zone; walk40 lost 52 px of net progress shoving past Toriel.
+- OPEN: `probe`'s anchor and a live shot can disagree by (237, -173) px after a room change. A
+  fadeless transition keeps the room number and can re-place me wrongly; the disagreement is logged,
+  the fix has not landed.
