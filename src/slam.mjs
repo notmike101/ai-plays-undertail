@@ -244,6 +244,37 @@ function paint(r, b, cam) {
       r.grid[i] = top;
     }
   }
+  thinSeamsToFloor(r);
+}
+
+// The floor tiles are drawn with 1-2 px black seams, and black is exactly what VOID means
+// here (the colour of a real pit or of the letterbox outside the room). Left in the grid the
+// seams slice every corridor into pockets: bodyFit refuses a cell with known solid within 3
+// cells sideways, and the gaps between seams are 6-7 cells, so nothing was reachable and the
+// room read as walked out. Anything thinner than 4 cells in either direction is a seam.
+const RUNH = new Int16Array(GW * GH), RUNV = new Int16Array(GW * GH);
+function thinSeamsToFloor(r) {
+  for (let y = 0; y < GH; y++) {
+    for (let x = 0; x < GW;) {
+      if (r.grid[gidx(x, y)] !== VOID) { x++; continue; }
+      let e = x;
+      while (e < GW && r.grid[gidx(e, y)] === VOID) e++;
+      for (let q = x; q < e; q++) RUNH[gidx(q, y)] = e - x;
+      x = e;
+    }
+  }
+  for (let x = 0; x < GW; x++) {
+    for (let y = 0; y < GH;) {
+      if (r.grid[gidx(x, y)] !== VOID) { y++; continue; }
+      let e = y;
+      while (e < GH && r.grid[gidx(x, e)] === VOID) e++;
+      for (let q = y; q < e; q++) RUNV[gidx(x, q)] = e - y;
+      y = e;
+    }
+  }
+  for (let i = 0, n = GW * GH; i < n; i++) {
+    if (r.grid[i] === VOID && Math.min(RUNH[i], RUNV[i]) <= 3) r.grid[i] = FLOOR;
+  }
 }
 
 // The tiles I have physically stood on, plus the ground my sprite is standing on: paint
@@ -312,15 +343,19 @@ function bodyFit(r, gx, gy) {
 const PREV = new Int32Array(GW * GH).fill(-2);
 const QUEUE = new Int32Array(600000);
 function bfs(r, start, goal, cap = 500000) {
-  const gi = gidx(goal[0], goal[1]); // goals are cell pairs, not flat indices
+  const [gx, gy] = goal; // goals are cell pairs, not flat indices
   const touched = [];
   let head = 0, tail = 0;
   const si = gidx(start[0], start[1]);
   PREV[si] = -1; touched.push(si); QUEUE[tail++] = si;
+  let end = -1;
   while (head < tail) {
     const cur = QUEUE[head++];
-    if (cur === gi) break;
     const x = cur % GW, y = (cur - x) / GW;
+    // within 3 cells (6 px) of the target IS arrival. Frontier cells hug walls, and my own
+    // collision box refuses the exact cell, so demanding it made whole unexplored regions
+    // read as unreachable and the walk quit inside a half-mapped room.
+    if (Math.abs(x - gx) + Math.abs(y - gy) <= 3) { end = cur; break; }
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const nx = x + dx, ny = y + dy;
       if (nx < 1 || nx >= GW - 1 || ny < 1 || ny >= GH - 1) continue;
@@ -332,9 +367,9 @@ function bfs(r, start, goal, cap = 500000) {
     }
   }
   let path = null;
-  if (PREV[gi] !== -2) {
+  if (end >= 0) {
     path = [];
-    for (let c = gi; c >= 0; c = PREV[c]) path.push([c % GW, (c - (c % GW)) / GW]);
+    for (let c = end; c >= 0; c = PREV[c]) path.push([c % GW, (c - (c % GW)) / GW]);
     path.reverse();
   }
   for (const t of touched) PREV[t] = -2;
@@ -670,7 +705,32 @@ function selftest() {
     const rC = { grid: mk([[GOX - 40, GOY - 3, WATER, 4, 30], [GOX + 8, GOY - 2, VINE, 30, 4]]), meta: {} };
     ok(!matchRoom(landmarks(rC, cellOf(0, 0)), [{ room: 3, anchor: cellA, land: landA, total: landA.length }]), 'a different room matched room 3');
   }
-  console.log('selftest ok: align anti-aliasing, transition classifier, bfs routing around tested walls, blocked marking, room identity');
+  {
+    // The floor tiles' 1-2 px black seams classify as VOID, the same value a real pit gets.
+    // Two seams 6 cells apart cut a corridor my body cannot cross, so bfs called the entire
+    // room disconnected - "walked out" with most of it still unexplored.
+    const r4 = { grid: new Uint8Array(GW * GH), meta: { cam: [0, 0], trail: [] } };
+    for (let y = 480; y <= 530; y++) for (let x = 780; x <= 860; x++) r4.grid[gidx(x, y)] = FLOOR;
+    for (let y = 480; y <= 530; y++) { r4.grid[gidx(810, y)] = VOID; r4.grid[gidx(816, y)] = VOID; }
+    for (let y = 495; y <= 510; y++) for (let x = 840; x <= 855; x++) r4.grid[gidx(x, y)] = VOID; // a genuine pit
+    ok(!bfs(r4, [790, 500], [830, 500]), 'a seam-cut corridor was passable before the cleanup');
+    thinSeamsToFloor(r4);
+    ok(bfs(r4, [790, 500], [830, 500]), 'the seam cleanup did not reconnect the corridor');
+    ok(r4.grid[gidx(847, 502)] === VOID, 'the cleanup erased a real pit');
+    ok(!bfs(r4, [790, 500], [847, 502]), 'the walker paths through the middle of a real pit');
+  }
+  {
+    // Frontier cells hug walls. The exact cell fails my collision box, so requiring bfs to
+    // stand on it made every wall-side frontier unreachable and the walk declared a
+    // half-mapped room finished. Arriving 6 px away is arrival.
+    const r5 = { grid: new Uint8Array(GW * GH), meta: { cam: [0, 0], trail: [] } };
+    for (let y = 490; y <= 520; y++) for (let x = 780; x <= 828; x++) r5.grid[gidx(x, y)] = FLOOR;
+    for (let y = 485; y <= 525; y++) r5.grid[gidx(831, y)] = BRICK; // exactly 3 cells off the goal, which is what bodyFit refuses
+    ok(walkable(r5, 828, 500) && !bodyFit(r5, 828, 500), 'the wall-side goal was not the intended impossible cell');
+    ok(bfs(r5, [790, 500], [828, 500]), 'bfs refused a goal it can stand 6 px away from');
+    ok(!bfs(r5, [790, 500], [840, 500]), 'bfs walked through a brick wall to get near a goal');
+  }
+  console.log('selftest ok: align anti-aliasing, transition classifier, seam cleanup, bfs arrival, blocked marking, room identity');
 }
 
 function walk(mode, steps) {
@@ -860,4 +920,9 @@ if (cmd === 'init') {
     for (let x = p.x - 40; x <= p.x + 40; x += 2) s += S[classify(b, x, y)] || '?';
     console.log(y, s);
   }
+} else if (cmd === 'clean') {
+  const r = loadRoom();
+  thinSeamsToFloor(r);
+  saveRoom(r);
+  console.log(`seams cleaned in room ${r.s.room}`);
 }
