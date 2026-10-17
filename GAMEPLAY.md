@@ -290,3 +290,26 @@ results. No engine internals, no outside walkthroughs.
   plausible, measure something - the reachability count (`slam probe`), or one known distance
   in the frame against the same distance on the grid. Every one of these bugs was invisible in
   the code and obvious in a measurement.
+
+### My key presses were going nowhere, and a message box blinded the mapper (run 1)
+- `src/play.mjs` has no bare-key verb: input is `press <key>`, `hold <key> <ms>`, `down`, `up`,
+  `seq`. Every "I pressed z / enter and nothing happened" earlier in this journal ran
+  `play.mjs z`, which answers `unknown cmd` and sends nothing. Those observations are VOID and
+  need re-testing: the dummy being "no longer interactable", "`z` and `enter` appended nothing"
+  beside Toriel, and the cream figure being "inert" in the brick-gate room.
+- Re-tested with `press z`: the box advanced and Toriel had already been talking -
+  "* There is another puzzle in this room. . ." then "* I wonder if you can solve it" - the same
+  pair she gave in the maze room, offered again when I came back near her. She stands in the room
+  and speaks; the earlier "she never spoke, she is a static obstacle" reading is not supported.
+- That box is also why the mapper died: a message box covers my sprite, so the walk's frame had
+  no player and it quit with "player not found". `clearBox` now OCRs the box, prints the line into
+  the walk log, advances it with `press z`, and resumes walking.
+- The way out of a room I had completely painted is drawn as a **black notch** in the wall, the
+  same class as a pit, and my body-clearance rule refused to path within 3 cells of black. So no
+  cell near any exit was routable: `probe` reported 34k walkable cells, 28k routable and "next
+  frontier none" in a room whose outline was untouched. Black no longer counts as solid for
+  pathing (it is still not standable), unexplored black is a frontier target, and the walker
+  presses into it - a failed step paints the wall, a good step goes through the doorway.
+- Room 0's grid was discarded (`slam init`): after the box, my recorded position disagreed with
+  the frame - slam expected my sprite at screen y 188, the frame had it at ~370 - so the painted
+  room could not be trusted.

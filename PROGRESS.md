@@ -63,8 +63,10 @@
   labelled-switch puzzle** and opened the stone gate; Toriel: "Splendid / I am proud of
   you, little one."
 - Dummy room: Toriel's lesson ("strike up a friendly conversation / Stall for time").
-  My first menu attempt landed on FIGHT; the dummy battle ended "You earned 0 EXP and 0
-  gold". The dummy is no longer interactable, so that practice is un-done.
+  My first menu attempt landed on FIGHT; the dummy battle ended "You earned 0 EXP and 0 gold", so
+  the conversation she asked for is still un-done. Whether the dummy can be talked to at all is
+  unproven: my later `z`/`enter` tests used a verb the client does not implement, so no key ever
+  reached the game.
 - Maze room: "* There is another puzzle in this room. . ." / "* I wonder if you can
   solve it" from Toriel. Walking out the bottom triggered a **Froggit** encounter; ACT
   -> Compliment gave "* Froggit didn't understand what you said, but was flattered
@@ -73,20 +75,19 @@
   journal rather than guessed at.
 - Plank/water/spike room: read the wall plaque there - "* The western room is the
   eastern room s blueprint." - and the frogger path (three dashes, four dashes) got me
-  onto the brown plank, where Toriel blocks the near end and no dialogue is offered.
-  I did not cross, and she is a static obstacle rather than a dialogue trigger: six
-  focused 200 ms right-holds moved me 0 px (a down hold in the same second moved 98 px),
-  `z` and `enter` added nothing to `logs/dialog.jsonl`, and her on-screen box held
+  onto the brown plank, where Toriel blocks the near end and offered no dialogue at the time.
+  I did not cross; the only evidence that she is a static obstacle is the movement probe: six
+  focused 200 ms right-holds moved me 0 px (a down hold in the same second moved 98 px); the
+  `z`/`enter` sends there are void - the client's verb is `press z` - and her box held
   [360,300,390,352] across 30 s of sampling. Water north, spike tiles south, the planks
   starting on the tile under her feet - that room has exactly one other connection: the
   doorway I came in through.
 - Walked into a new room through a fade the mapper caught (`fade (room transition in progress)`): a
-  symmetric brick "gate" with two vine columns and a cream dummy-like figure; by its appearance it is
-  the Dummy lesson room (no sign on screen confirms the name), and the figure is inert: `z` beside it added nothing to
-  `logs/dialog.jsonl`, and walking into it started no battle and no dialogue - consistent with the
-  earlier note that my accidental FIGHT ended that lesson. Toriel was not in the room.
-  This room is one screen: the camera never scrolled, and the painted box is exactly the capture
-  window (636x474 px), with its two vine columns 200 px apart on the grid against ~205 px on screen.
+  symmetric brick "gate" with two vine columns and a cream dummy-like figure; named the Dummy lesson
+  room by appearance only, no sign on screen. Three claims from that look are void: the `z` sends never
+  reached the game (the client's verb is `press z`), "one screen, the camera never scrolled" was an
+  artefact of the double-counted scale, and re-entering that area later put **Toriel in the room**
+  repeating the maze-room lines, so the identification itself is unconfirmed. A sign will settle it.
 - Wandering east/south from there opened a neighbouring room: brick ledges, two vine
   walls, black pits, and no water, plank or Toriel in view. My screen-coordinate
   bookkeeping went wrong there - the camera clamps at a room's edges, so "no movement"
