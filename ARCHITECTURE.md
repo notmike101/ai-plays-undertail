@@ -93,8 +93,9 @@ node src/harness.mjs                                 # sidecar (ws on 127.0.0.1:
 
 ## Persistent world map - `src/slam.mjs`
 
-- Frame geometry first: `raw grab` is 646x520 RGBA (1343680 bytes), rows 0-37 are the window
-  title bar. The sampling window is x 2-641, y 40-515. A window that ran to x=759 read past
+- Frame geometry first: `raw grab` is 646x520, 4 bytes per pixel in B,G,R,A order (1343680
+  bytes), rows 0-37 are the window title bar. The sampling window is x 2-641, y 40-515. A
+  window that ran to x=759 read past
   the end of every row and wrapped into the next one, which smeared the map and offset it 133
   cells east of my real position; that one constant caused the days of "walking in circles".
   `selftest` now asserts the window fits the frame and excludes the title bar.
@@ -162,3 +163,22 @@ node src/harness.mjs                                 # sidecar (ws on 127.0.0.1:
   (~15-27 px). A byte-identical frame after a key hold means the game paused when its window
   lost focus, so the step pulls the window to the foreground and presses again before the
   zero-move is believed as a wall.
+  A byte-identical frame is not the only false zero: a message box covers my sprite, so the
+  frame has no player at all and the walk used to quit with "player not found" in the middle of
+  a room Toriel was talking in. `clearBox` OCRs the live frame (`play.mjs text`), prints the
+  line into the walk log, advances the box with `press z` and resumes; only a box that refuses
+  to close after 8 presses ends the walk.
+- Black is not an obstacle for pathing. The area outside a room is black, and every doorway out
+  of it is drawn as a black notch in that same area, so `bodyFit`'s clearance rule (refuse a cell
+  with known solid within 3 cells sideways) left no routable cell next to any exit: `probe`
+  reported 34k walkable, 28k routable and no frontier in a room whose outline was untouched.
+  `SOLID` therefore excludes `VOID` - black is still never *standable* (`walkable()` keeps it
+  out), it just no longer shrinks the corridor. `pickFrontier` counts unexplored black as ground
+  to look at, gives each gap one honest try, and the walk **presses** into it: bfs cannot stand
+  on black, so a short path to a black target becomes a two-node path and the ordinary step
+  handler either paints the wall (failed move) or takes me through the doorway (fade).
+- A frontier target expires when the picture resolves it. The cell is chosen while UNKNOWN, and
+  walking toward it is exactly what paints it: measured as `NO ROUTE from a PROVEN cell to a
+  target that is now BRICK`. Nine steps per round were burned heading for a wall that grew under
+  me, which showed up as the planner flip-flopping between an east and a south target.
+  `walk` now nulls the path the moment the target is neither UNKNOWN nor VOID.
