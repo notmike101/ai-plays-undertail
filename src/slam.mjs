@@ -1122,7 +1122,20 @@ function walk(mode, steps) {
     if (ax > ay && ddx) dir = ddx > 0 ? 'right' : 'left';
     else if (ddy) dir = ddy > 0 ? 'down' : 'up';
     else if (ddx) dir = ddx > 0 ? 'right' : 'left';
-    if (!dir) { console.log(`step ${i}: arrived at ${cur}`); break; }
+    if (!dir) {
+      console.log(`step ${i}: arrived at ${cur}`);
+      // A frontier target is one stop on a tour, not the end of the walk: walk28 reached its target
+      // cleanly and then quit with most of the room still unvisited.
+      if (mode !== 'frontier') break;
+      tried.add(tgx + ',' + tgy);
+      const p = pickFrontier(r, cur, tried);
+      if (!p) { console.log(`room ${r.s.room} is walked out: nothing further reachable is unmapped`); break; }
+      tgx = p.t[0]; tgy = p.t[1];
+      if (r.grid[gidx(tgx, tgy)] === VOID) tried.add(tgx + ',' + tgy); // a black gap gets one honest try
+      console.log(`step ${i}: next target ${tgx},${tgy} (path ${p.path.length})`);
+      prev = null;
+      continue;
+    }
     // The hold must not overshoot what is left to walk. 90 ms is 16 px = 32 cells, while arrival
     // counts as within 3 cells (6 px): at path lengths of 28-40 cells the walker sailed past the
     // target on every step and ping-ponged left/right for hundreds of steps (walk23, 800 steps,
