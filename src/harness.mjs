@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import { WebSocketServer } from 'ws';
 import path from 'node:path';
 import fs from 'node:fs';
+import { readText } from './ocr.mjs';
 
 const SRC = import.meta.dirname;
 const ROOT = path.resolve(SRC, '..');
@@ -11,6 +12,9 @@ const BRIDGE = path.join(SRC, 'bridge', 'bridge.exe');
 const PORT = Number(process.env.HARNESS_PORT || 8789);
 const FRAMES = path.join(ROOT, 'logs', 'frames');
 fs.mkdirSync(FRAMES, { recursive: true });
+const OCRDIR = path.join(ROOT, 'logs', 'ocr');
+fs.mkdirSync(OCRDIR, { recursive: true });
+const OCRBIN = path.join(OCRDIR, 'live.bin');
 
 const child = spawn(BRIDGE, process.argv.slice(2), { stdio: ['pipe', 'pipe', 'pipe'] });
 child.stderr.on('data', (d) => process.stderr.write('[bridge] ' + d));
@@ -181,7 +185,36 @@ async function exec(msg) {
         }
         out.push(prev);
       }
-      return { ok: true, pages: out };
+      // capture the settled page's text so nothing has to be read off a picture
+      const texts = [];
+      for (const p of out) {
+        const d = await bridgeT('dump ' + p + ' ' + OCRBIN, 20000);
+        texts.push(d.ok ? readText(fs.readFileSync(OCRBIN), d.w, d.h, msg.set || 'dialog') : '');
+      }
+      return { ok: true, pages: out, texts };
+    }
+    case 'text': {
+      const g = await bridgeT('grab ' + OCRBIN, 20000);
+      if (!g.ok) return g;
+      return { ok: true, text: readText(fs.readFileSync(OCRBIN), g.w, g.h, msg.set || 'dialog') };
+    }
+    case 'readtext': {
+      const d = await bridgeT('dump ' + resolve(msg.name) + ' ' + OCRBIN, 20000);
+      if (!d.ok) return d;
+      return { ok: true, text: readText(fs.readFileSync(OCRBIN), d.w, d.h, msg.set || 'dialog') };
+    }
+    case 'readwatch': {
+      // sample the screen text continuously: catches pages that advance by themselves
+      const ms = (msg.seconds || 6) * 1000, gap = msg.gap || 350;
+      const seen = [];
+      const end = Date.now() + ms;
+      while (Date.now() < end) {
+        const r = await exec({ cmd: 'text', set: msg.set });
+        const t = (r.text || '').trim();
+        if (t && (!seen.length || seen[seen.length - 1].t !== t)) seen.push({ t, at: Date.now() });
+        await sleep(gap);
+      }
+      return { ok: true, count: seen.length, pages: seen.map((s) => ({ at: s.at, text: s.t })) };
     }
     case 'probe': {
       // press each key, then report changed pixels and where

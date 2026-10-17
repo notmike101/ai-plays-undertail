@@ -36,6 +36,9 @@ switch (cmd) {
   case 'page': out = await req({ cmd: 'page', pages: Number(arg[1] || 1), key: arg[2] === 'none' ? false : arg[2] }); break;
   case 'probe': out = await req({ cmd: 'probe', keys: String(arg[1] || '').split(','), ms: Number(arg[2] || 500), hold: arg[3] === undefined ? undefined : Number(arg[3]) }); break;
   case 'wait': await sleep(Number(arg[1] || 100)); out = { ok: true }; break;
+  case 'text': out = await req({ cmd: 'text' }); break;
+  case 'readtext': out = await req({ cmd: 'readtext', name: arg[1] }); break;
+  case 'readwatch': out = await req({ cmd: 'readwatch', seconds: Number(arg[1] || 6), gap: Number(arg[2] || 350) }); break;
   case 'raw': out = await req({ cmd: 'raw', line: arg.slice(1).join(' ') }); break;
   case 'ping': out = await req({ cmd: 'ping' }); break;
   default: out = { ok: false, err: 'unknown cmd: ' + cmd }; break;

@@ -1,5 +1,10 @@
-Journal the flower betrayal and Toriel rescue; save run1 evidence frames
+add pixel OCR so dialogue can be read, not skipped
 
-- evidence/run1: 01 intro through 07 toriel guide (HP 20/20 after rescue)
-- GAMEPLAY.md: attack postmortem (HP 20->1 while advancing dialogue), new rule to dodge before advancing text
-- PROGRESS.md: current situation and next actions
+- bridge: dump/grab raw BGRA frames
+- src/ocr.mjs: component OCR (border/sprite masking, deterministic fragment
+  merge, pitch-free glyph keys) + CLI train/read/lines
+- harness: text, readtext, readwatch (catches auto-advancing pages);
+  page now returns the OCR text of each settled page
+- play.mjs: text / readtext / readwatch
+- trained first vocabulary from lines I read myself (save point text)
+- evidence: save point frames

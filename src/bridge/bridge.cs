@@ -278,6 +278,46 @@ class Bridge
                         b.Dispose();
                         break;
                     }
+                    case "dump":
+                    {
+                        // dump <png> <out.bin> [x y w h] -> raw BGRA bytes, for the OCR tool
+                        if (p.Length < 3) { Console.WriteLine("{\"ok\":false,\"err\":\"need png and out\"}"); break; }
+                        Bitmap src = new Bitmap(p[1]);
+                        int x = 0, y = 0, cw = src.Width, chh = src.Height;
+                        if (p.Length >= 7) { x = int.Parse(p[3]); y = int.Parse(p[4]); cw = int.Parse(p[5]); chh = int.Parse(p[6]); }
+                        if (x + cw > src.Width) cw = src.Width - x;
+                        if (y + chh > src.Height) chh = src.Height - y;
+                        BitmapData bd2 = src.LockBits(new Rectangle(x, y, cw, chh), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+                        byte[] row = new byte[cw * 4];
+                        using (var fs = new System.IO.FileStream(p[2], System.IO.FileMode.Create))
+                        {
+                            for (int r2 = 0; r2 < chh; r2++)
+                            {
+                                IntPtr ptr = IntPtr.Add(bd2.Scan0, r2 * bd2.Stride);
+                                Marshal.Copy(ptr, row, 0, row.Length);
+                                fs.Write(row, 0, row.Length);
+                            }
+                        }
+                        src.UnlockBits(bd2);
+                        src.Dispose();
+                        Console.WriteLine("{\"ok\":true,\"w\":" + cw + ",\"h\":" + chh + ",\"path\":" + Esc(System.IO.Path.GetFullPath(p[2])) + "}");
+                        break;
+                    }
+                    case "grab":
+                    {
+                        // grab <out.bin> [x y w h] -> dump the live window straight to raw bytes
+                        IntPtr h = FindWindow();
+                        if (h == IntPtr.Zero) { Console.WriteLine("{\"ok\":false,\"err\":\"no window\"}"); break; }
+                        Bitmap b = Grab(h, false);
+                        if (b == null) { Console.WriteLine("{\"ok\":false,\"err\":\"grab failed\"}"); break; }
+                        string tmp = System.IO.Path.GetTempFileName();
+                        b.Save(tmp, ImageFormat.Png);
+                        b.Dispose();
+                        var parts = new List<string> { "dump", tmp, p.Length > 1 ? p[1] : "grab.bin" };
+                        for (int i = 2; i < p.Length; i++) parts.Add(p[i]);
+                        p = parts.ToArray();
+                        goto case "dump";
+                    }
                     case "diff":
                     {
                         if (p.Length < 3) { Console.WriteLine("{\"ok\":false,\"err\":\"need two paths\"}"); break; }
