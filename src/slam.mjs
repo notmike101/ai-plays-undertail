@@ -442,6 +442,17 @@ function bodyFit(r, gx, gy) {
   return true;
 }
 
+// The direction the walker aims at comes from a lookahead point, not from the route, so it has to be
+// re-checked against the graph the route was planned on: a vetoed move, a cell the grid calls solid,
+// or a cell my collision box refuses are all off-limits even when they are the straight line to the
+// lookahead.
+const VEC = { right: [1, 0], left: [-1, 0], down: [0, 1], up: [0, -1] };
+function legalAim(r, cur, dir) {
+  const [dx, dy] = VEC[dir];
+  if (r.veto && r.veto.has(`${cur[0]},${cur[1]}|${dir}`)) return false;
+  return passable(r, cur[0] + dx, cur[1] + dy) && bodyFit(r, cur[0] + dx, cur[1] + dy);
+}
+
 // A BRICK band at most 3 cells thick is far more likely a misread shadow seam than a wall: this
 // room's dark floor keeps being painted VOID and its edges BRICK, and one such band sealed my whole
 // reachable area - walk34 reported no frontier at all while the colour shots show the wide room
@@ -1014,6 +1025,18 @@ function selftest() {
     ok(!bfs(r4b, [795, 500], [870, 500]), 'bfs now walks through a real raised wall');
   }
   {
+    // The walker aims 8 cells down the route, so it can point at the very move the route exists to
+    // avoid: walk35 sawed left out of 875,700 for 34 re-targets after that edge was vetoed at step 153.
+    const r6 = { grid: new Uint8Array(GW * GH), meta: { cam: [0, 0], trail: [] } };
+    for (let y = 490; y <= 510; y++) for (let x = 790; x <= 830; x++) r6.grid[gidx(x, y)] = FLOOR;
+    r6.veto = new Set(['810,500|left']);
+    ok(legalAim(r6, [810, 500], 'right'), 'a plain floor move was refused');
+    ok(!legalAim(r6, [810, 500], 'left'), 'a vetoed move was aimed into anyway');
+    for (let y = 490; y <= 510; y++) for (let x = 806; x <= 809; x++) r6.grid[gidx(x, y)] = BRICK; // 4 wide: a lone brick cell reads floor by 3x3 majority, and a 3-wide band is THIN
+    r6.veto = null;
+    ok(!legalAim(r6, [810, 500], 'left'), 'a move into painted brick was aimed into anyway');
+  }
+  {
     // Frontier cells hug walls. The exact cell fails my collision box, so requiring bfs to
     // stand on it made every wall-side frontier unreachable and the walk declared a
     // half-mapped room finished. Arriving 6 px away is arrival.
@@ -1224,6 +1247,18 @@ function walk(mode, steps) {
     if (ax > ay && ddx) dir = ddx > 0 ? 'right' : 'left';
     else if (ddy) dir = ddy > 0 ? 'down' : 'up';
     else if (ddx) dir = ddx > 0 ? 'right' : 'left';
+    // Aiming 8 cells ahead smooths route wiggle, but it can point straight into the move the route
+    // was built to avoid: walk35 sawed left out of 875,700 for 34 re-targets although that very edge
+    // had been vetoed at step 153, because the route curving around it put the lookahead point to the
+    // left. An aimed move has to be legal on the vetted graph; otherwise take the route's own step.
+    if (dir && !legalAim(r, cur, dir)) {
+      const pd = path[1];
+      if (pd && Math.abs(pd[0] - cur[0]) + Math.abs(pd[1] - cur[1]) === 1) {
+        const pd2 = pd[0] === cur[0] ? (pd[1] > cur[1] ? 'down' : 'up') : pd[0] > cur[0] ? 'right' : 'left';
+        console.log(`step ${i}: the aim wanted ${dir} out of ${cur}, which the vetted route forbids; taking ${pd2}`);
+        dir = pd2;
+      }
+    }
     if (!dir) {
       console.log(`step ${i}: arrived at ${cur}`);
       // A frontier target is one stop on a tour, not the end of the walk: walk28 reached its target
