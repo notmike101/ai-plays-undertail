@@ -223,3 +223,8 @@ node src/harness.mjs                                 # sidecar (ws on 127.0.0.1:
 - OPEN: `probe`'s anchor and a live shot can disagree by (237, -173) px after a room change. A
   fadeless transition keeps the room number and can re-place me wrongly; the disagreement is logged,
   the fix has not landed.
+- Two traps in reading my own evidence. A stationary NPC looks like a walking one once the camera
+  scrolls: the only honest comparison is sprite against a fixed wall inside the same frame, which is how
+  I came to claim Toriel paces when she had not moved a tile in 24 s. And `OTH` blobs are not furniture -
+  my sprite's face is yellow, so a line of yellow along the trail is my own footsteps; I read that as
+  floor pressure plates.
