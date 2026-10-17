@@ -9,11 +9,13 @@ import fs from 'fs';
 import zlib from 'zlib';
 import { playerPosFrom } from './walk.mjs';
 
-// Capture geometry. The frame IS 646x520 (646*520*4 = the grab's byte count), so a window
-// that ran to x=759 read past the end of every row and wrapped into the next one: the map
-// was painted from smeared pixels and offset 133 cells east of where I actually stand,
-// which is why every room looked like a sealed box. The left 65 columns are window chrome.
-const CX0 = 66, CY0 = 4, CX1 = 642, CY1 = 515, CW = 646;
+// Capture geometry. The frame is 646x520 (646*520*4 = the grab's byte count): rows 0-37
+// are the window title bar (flat 243 grey), rows 38+ are game content, x 0-643 content.
+// Two bugs lived here: a window that ran to x=759 read past the end of every row and
+// wrapped into the next one (map smeared, offset 133 cells east of me), and the grey title
+// bar inside the window both painted a fake SPIKE band across every room and pinned align()
+// to dx=0, because chrome never scrolls with the camera.
+const CX0 = 2, CY0 = 40, CX1 = 641, CY1 = 517, CW = 646, CHF = 520;
 // map geometry: 1 cell = 2 capture px, canvas is per-room
 const CELL = 2, GW = 1600, GH = 1000, GOX = 800, GOY = 500;
 const DIR = 'logs/map';
@@ -22,8 +24,8 @@ const BIN = 'logs/ocr/slam.bin';
 // class codes. The pale rounded shapes are the SAME walkable floor, just drawn lighter -
 // only colour-exact hazards (void, water, vine, spikes) count as solid from the picture;
 // everything else that stops me gets recorded as BLOCKED by the walker itself.
-const UNKNOWN = 0, FLOOR = 1, LIGHT = 2, VOID = 3, WATER = 4, SPIKE = 5, WOOD = 6, VINE = 7, PROVEN = 8, OTH = 9, BLOCKED = 10;
-const CH = { 0: '?', 1: '.', 2: 'L', 3: 'k', 4: 'W', 5: 'S', 6: 'B', 7: 'v', 8: '*', 9: '#', 10: 'X' };
+const UNKNOWN = 0, FLOOR = 1, LIGHT = 2, VOID = 3, WATER = 4, SPIKE = 5, WOOD = 6, VINE = 7, PROVEN = 8, OTH = 9, BLOCKED = 10, BRICK = 11;
+const CH = { 0: '?', 1: '.', 2: 'L', 3: 'k', 4: 'W', 5: 'S', 6: 'B', 7: 'v', 8: '*', 9: '#', 10: 'X', 11: 'b' };
 const WALK = new Set([FLOOR, LIGHT, WOOD, PROVEN]);
 
 const sh = (a) => { try { return execFileSync('node', ['src/play.mjs', ...a], { stdio: 'pipe' }); } catch { } };
@@ -43,7 +45,10 @@ function classify(b, x, y) {
   if (near(c, 185, 98, 185, 16)) return LIGHT;
   if (near(c, 0, 0, 0, 40)) return VOID;
   if (near(c, 163, 73, 164, 22)) return FLOOR;
-  if (near(c, 132, 53, 125, 22)) return FLOOR;
+  // The dark mortar colour only occurs in raised brick walls: sampled over the platform
+  // that stopped me it is 22 % of the pixels, over walkable floor and the pale blobs 0 %.
+  // The base purple is identical in both, so this is the only colour that separates wall.
+  if (near(c, 132, 53, 125, 22)) return BRICK;
   if (near(c, 167, 112, 82, 26) || near(c, 112, 66, 56, 26)) return WOOD;
   if (c[1] > 150 && c[2] > 150 && c[0] < 170) return WATER;
   if (near(c, 55, 97, 138, 30)) return WATER;
@@ -164,21 +169,40 @@ function paintMask(b) {
   return m;
 }
 
+const MW = Math.ceil((CX1 - CX0) / CELL) + 2, MH = Math.ceil((CY1 - CY0) / CELL) + 2;
+const MORTAR = new Uint8Array(MW * MH);
 function paint(r, b, cam) {
   const mask = paintMask(b);
   const inside = (x, y) => mask.some(([x0, x1, y0, y1]) => x >= x0 && x <= x1 && y >= y0 && y <= y1);
-  for (let y = CY0; y <= CY1 - CELL; y += CELL) {
-    for (let x = CX0; x <= CX1 - CELL; x += CELL) {
+  for (let cy = 0, y = CY0; y <= CY1 - CELL; cy++, y += CELL) {
+    for (let cx = 0, x = CX0; x <= CX1 - CELL; cx++, x += CELL) {
+      let m = 0;
+      for (let dy = -2; dy < 2; dy++) for (let dx = -2; dx < 2; dx++) if (classify(b, x + dx, y + dy) === BRICK) m++;
+      MORTAR[cy * MW + cx] = m;
+    }
+  }
+  for (let cy = 0, y = CY0; y <= CY1 - CELL; cy++, y += CELL) {
+    for (let cx = 0, x = CX0; x <= CX1 - CELL; cx++, x += CELL) {
       let vote = {}, top = OTH, tn = 0;
-      for (let dy = 0; dy < CELL; dy++) for (let dx = 0; dx < CELL; dx++) {
+      for (let dy = -2; dy < 2; dy++) for (let dx = -2; dx < 2; dx++) {
         const c = classify(b, x + dx, y + dy);
         vote[c] = (vote[c] || 0) + 1;
         if (vote[c] > tn) { tn = vote[c]; top = c; }
       }
-      if (inside(x, y)) continue; // sprites - my head, hair, star, dress, or an NPC - say
-                                   // nothing about the floor; painting them fenced me in on
-                                   // every side and the walker could never leave its own disc
-      if (top === OTH) continue;  // brick grout and other unnameable colour
+      let msum = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const ny = cy + dy, nx = cx + dx;
+        if (ny < 0 || nx < 0 || ny >= MH || nx >= MW) continue;
+        msum += MORTAR[ny * MW + nx];
+      }
+      // A raised brick wall is the base purple crossed with mortar lines: 22 % of the
+      // platform that stopped me is mortar, walkable floor and the pale blobs have none. The
+      // lines have gaps, so the evidence is summed over the 3x3 neighbourhood - that turns
+      // the texture into one solid mass instead of a porous dither the walker squeezes into.
+      // WOOD is exempt: the plank I need to carry is brown with a dark outline.
+      if (msum >= 14 && top !== WOOD) top = BRICK;
+      if (inside(x, y)) continue; // sprites - me or an NPC - say nothing about the floor
+      if (top === OTH) continue;  // unnameable colour
       const gx = GOX + Math.round((cam[0] + x) / CELL), gy = GOY + Math.round((cam[1] + y) / CELL);
       if (gx < 0 || gx >= GW || gy < 0 || gy >= GH) continue;
       const i = gidx(gx, gy);
@@ -188,7 +212,10 @@ function paint(r, b, cam) {
   }
 }
 
-// mark the tiles I have physically stood on: strongest walkability evidence there is
+// The tiles I have physically stood on, plus the ground my sprite is standing on: paint
+// cannot see that ground (my sprite hides those pixels), so it stayed UNKNOWN in a band as
+// wide as the sprite and BFS could never leave my own position - every room looked sealed.
+// Anything the picture proves solid still wins over the assumption.
 function markFeet(r, cam, me) {
   const [wx, wy] = [cam[0] + me.x, cam[1] + me.y + 13];
   for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) {
@@ -196,6 +223,13 @@ function markFeet(r, cam, me) {
     const [gx, gy] = cellOf(wx + dx * CELL, wy + dy * CELL);
     if (gx < 0 || gx >= GW || gy < 0 || gy >= GH) continue;
     if (r.grid[gidx(gx, gy)] !== VOID) r.grid[gidx(gx, gy)] = PROVEN;
+  }
+  for (let dy = -2; dy <= 3; dy++) for (let dx = -9; dx <= 9; dx++) {
+    const [gx, gy] = cellOf(wx + dx * CELL, wy + dy * CELL);
+    if (gx < 0 || gx >= GW || gy < 0 || gy >= GH) continue;
+    const i = gidx(gx, gy), v = r.grid[i];
+    if (v === VOID || v === BRICK || v === WATER || v === VINE || v === SPIKE) continue;
+    r.grid[i] = PROVEN;
   }
   r.meta.trail.push([Math.round(wx), Math.round(wy)]);
   if (r.meta.trail.length > 4000) r.meta.trail.splice(0, 2000);
@@ -223,7 +257,7 @@ function walkable(r, gx, gy) {
     if (c[v] > tn) { tn = c[v]; top = v; }
   }
   if (c[PROVEN] >= 2) return true;
-  if (top === VOID || top === WATER || top === VINE || top === SPIKE || top === BLOCKED) return false;
+  if (top === VOID || top === WATER || top === VINE || top === SPIKE || top === BLOCKED || top === BRICK) return false;
   if (c[BLOCKED] >= 3) return false;
   return WALK.has(top);
 }
@@ -375,7 +409,7 @@ function show(r) {
 function writePng(r) {
   const w = GW, h = GH;
   const raw = Buffer.alloc(w * (h * 3 + 1));
-  const col = { 0: [20, 20, 24], 1: [120, 60, 120], 2: [200, 150, 200], 3: [0, 0, 0], 4: [70, 187, 217], 5: [190, 190, 190], 6: [167, 112, 82], 7: [40, 140, 60], 8: [255, 220, 60], 9: [90, 90, 110], 10: [60, 60, 220] };
+  const col = { 0: [20, 20, 24], 1: [120, 60, 120], 2: [200, 150, 200], 3: [0, 0, 0], 4: [70, 187, 217], 5: [190, 190, 190], 6: [167, 112, 82], 7: [40, 140, 60], 8: [255, 220, 60], 9: [90, 90, 110], 10: [60, 60, 220], 11: [95, 40, 95] };
   for (let y = 0; y < h; y++) {
     raw[y * (w * 3 + 1)] = 0;
     for (let x = 0; x < w; x++) {
@@ -405,6 +439,35 @@ function writePng(r) {
 // node src/slam.mjs selftest
 function selftest() {
   const ok = (cond, msg) => { if (!cond) { console.error('SELFTEST FAIL: ' + msg); process.exit(1); } };
+  ok(CX1 < CW && CY1 < CHF && CX0 >= 0 && CY0 >= 0, 'capture window must fit inside the 646x520 frame');
+  {
+    // the title bar is flat 243 grey above row 38; inside the window it paints a fake grey
+    // band across every room and pins align() to dx=0, because chrome never scrolls
+    const b = Buffer.alloc(646 * 520 * 4);
+    for (let y = 0; y < 38; y++) for (let x = 0; x < 646; x++) { const p = (y * 646 + x) * 4; b[p] = b[p + 1] = b[p + 2] = 243; }
+    for (let y = 38; y < 520; y++) for (let x = 0; x < 646; x++) { const p = (y * 646 + x) * 4; b[p] = 164; b[p + 1] = 73; b[p + 2] = 163; }
+    let grey = 0;
+    for (let y = CY0; y < CY1; y++) for (let x = CX0; x < CX1; x++) if (classify(b, x, y) === SPIKE) grey++;
+    ok(grey === 0, `window must exclude the title bar (${grey} grey cells)`);
+  }
+  {
+    // raised brick walls are the same purple as the floor; only the mortar lines tell them
+    // apart, and calling them floor is what sent the walker into a wall for four steps
+    const b = Buffer.alloc(646 * 520 * 4);
+    const put = (x, y, rgb) => { const p = (y * 646 + x) * 4; b[p] = rgb[2]; b[p + 1] = rgb[1]; b[p + 2] = rgb[0]; };
+    for (let y = 40; y < 517; y++) for (let x = 2; x < 641; x++) put(x, y, [163, 73, 164]);
+    for (let y = 40; y < 300; y++) for (let x = 300; x < 641; x++) if (y % 8 < 2 || (x + ((y >> 3) & 1) * 16) % 32 < 2) put(x, y, [132, 53, 125]);
+    const rr = { grid: new Uint8Array(GW * GH), meta: { cam: [0, 0], me: [0, 0], world: [0, 0], trail: [] } };
+    paint(rr, b, [0, 0]);
+    // mortar lines have gaps, so the property is "the walker cannot cross the platform",
+    // not "every cell is solid": check the regions, not single cells
+    let tot = 0, solid = 0;
+    for (let gy = 530; gy < 640; gy++) for (let gx = 960; gx < 1090; gx++) { tot++; if (!walkable(rr, gx, gy)) solid++; }
+    ok(solid > tot * 0.7, `mortared brick platform must be mostly solid (${solid}/${tot})`);
+    let otot = 0, open = 0;
+    for (let gy = 660; gy < 700; gy++) for (let gx = 820; gx < 900; gx++) { otot++; if (walkable(rr, gx, gy)) open++; }
+    ok(open === otot, `flat purple floor must be fully walkable (${open}/${otot})`);
+  }
   const mk = (shift) => {
     const b = Buffer.alloc(646 * 520 * 4);
     for (let y = 0; y < 520; y++) for (let x = 0; x < 646; x++) {
@@ -465,7 +528,20 @@ function walk(mode, steps) {
       if (mode === 'frontier') {
         tried.add(tgx + ',' + tgy);
         const p = pickFrontier(r, cur, tried);
-        if (!p) { console.log(`step ${i}: nothing further reachable is unmapped; room ${r.s.room} is walked out`); break; }
+        if (!p) {
+          // one wrong "wall" (a paused window, a camera clamp) can disconnect a whole room,
+          // so before declaring it finished, test whether my recorded walls are the cause
+          let cleared = 0;
+          for (let k = 0; k < r.grid.length; k++) if (r.grid[k] === BLOCKED) { r.grid[k] = UNKNOWN; cleared++; }
+          const q = cleared ? pickFrontier(r, cur, tried) : null;
+          if (q) {
+            tgx = q.t[0]; tgy = q.t[1];
+            console.log(`step ${i}: my ${cleared} recorded walls disconnected the room - clearing them, retarget ${tgx},${tgy}`);
+            continue;
+          }
+          console.log(`step ${i}: nothing further reachable is unmapped; room ${r.s.room} is walked out`);
+          break;
+        }
         tgx = p.t[0]; tgy = p.t[1];
         console.log(`step ${i}: new frontier target ${tgx},${tgy} (path ${p.path.length})`);
         continue;
@@ -478,7 +554,14 @@ function walk(mode, steps) {
     const dir = dx > 0 ? 'right' : dx < 0 ? 'left' : dy > 0 ? 'down' : dy < 0 ? 'up' : null;
     if (!dir) { console.log(`step ${i}: arrived at ${cur}`); break; }
     const ms = Math.max(90, Math.min(150, Math.round((path.length * CELL) / PXMS))); // hold sized to the distance still to go
-    const res = step(r, dir, ms);
+    let res = step(r, dir, ms);
+    if (res.moved < 6 && !res.lost && !res.fade && !res.transition) {
+      // the game pauses when its window loses focus: a zero move is not evidence of a wall
+      // until the key has provably landed, and marking a fake wall poisons the map
+      sh(['focus']); sleep(250);
+      const retry = step(r, dir, ms);
+      if (retry.moved >= 6) { res = retry; console.log(`  refocused: ${dir} moved ${retry.moved.toFixed(0)}px after all`); }
+    }
     if (process.env.TRACE) console.log(`  trace ${dir} ms=${ms} path=${path.length} target=${tgx},${tgy} cam=${r.meta.cam} off=${r.meta.lastOff} cost=${res.cost}`);
     if (res.fade) { console.log(`step ${i}: fade (room transition in progress)`); continue; }
     if (res.transition) {
