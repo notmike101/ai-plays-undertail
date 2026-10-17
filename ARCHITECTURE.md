@@ -117,13 +117,21 @@ node src/harness.mjs                                 # sidecar (ws on 127.0.0.1:
   so `paint` counts mortar per cell and sums it over the 3x3 neighbourhood (>= 14 means wall),
   which turns the lined texture into one solid mass instead of a porous dither. `WOOD` is
   exempt, because the plank I have to carry is brown with a dark outline.
+- Physical evidence outranks colour: `PROVEN` (my collision box occupied that cell) may never be
+  downgraded to an impassable class by a repaint, and `markBlocked` will not wall off such a cell.
+  `stoodRepair` sweeps the collision box along every trail segment after each paint - footfalls
+  land ~13 cells apart, so repairing only the exact cells leaves `bodyFit` nowhere to step. This
+  room's walkable floor is drawn with mortar lines and 1-2 px black seams, which the mortar vote
+  reads as a raised wall: 185 of 828 footfalls sat on cells painted BRICK or VOID, and the walker
+  reported 2 cells routable from its own position.
 - Sprites are painted out, but only the parts that lie: the blue dress box under my anchor and
   a size-checked NPC robe (the brickwork shares the robe colour, so an unbounded colour bbox
   punched half a room of holes). My head and hair classify as unnameable and are dropped
   anyway. Masking the whole body leaves an UNKNOWN hole the size of the sprite, and BFS only
   steps a cell or two into unknown ground, so that hole sealed every room around me;
   `markFeet` therefore claims the feet row (~19x6 cells) as `PROVEN` - the ground my sprite
-  stands on, which the camera cannot see. A failed step overwrites `PROVEN` with `BLOCKED`.
+  stands on, which the camera cannot see. A failed step walls the ground ahead of me, but never a
+  cell my collision box has already occupied: a footprint is stronger evidence than a refused step.
 - Reachability, not crow-flies distance: `flood` walks the whole grid once per planning round
   and `pickFrontier` takes the UNKNOWN cell adjacent to known floor that is farthest by real
   walking distance and within 3 cells (6 px) of a cell I can actually occupy. The previous list

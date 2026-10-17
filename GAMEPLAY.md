@@ -313,3 +313,25 @@ results. No engine internals, no outside walkthroughs.
 - Room 0's grid was discarded (`slam init`): after the box, my recorded position disagreed with
   the frame - slam expected my sprite at screen y 188, the frame had it at ~370 - so the painted
   room could not be trusted.
+
+### My own footprints contradicted the map, and the footprints won (run 1)
+- The colour legend failed a third time, and this time the contradicting evidence was my own body.
+  Of 828 recorded footfalls in the room I have been mapping, **68 landed on cells the map called
+  raised brick wall and 117 on cells it called black pit** - 22 % of everywhere I had actually
+  stood. `probe` then reported **2 cells routable from my own position**, in a room I had just
+  walked 300 steps across.
+- Why: this room draws walkable floor with a *flat* brick-and-seam texture - mortar lines and 1-2 px
+  black seams inside ground I can stand on. `paint`'s mortar test (>= 14 of the 3x3 neighbourhood)
+  cannot separate that from a raised wall, and `classify` has no way to tell a floor seam from a pit.
+  `maskdbg` on the live frame shows it plainly, the raw class row through my own position:
+  `1111b11311119999...` - floor, 2 px brick line, floor, 2 px black line, repeating, with me at the
+  middle of it (player anchor 107,259).
+- Rule now in the mapper: **physical evidence outranks colour.** A `PROVEN` cell (my collision box
+  was there) can never be downgraded to impassable by a repaint; `markBlocked` refuses to wall off
+  one; and after every paint the trail is swept, claiming the collision box at every point of every
+  segment (repairing only the exact footfall cells was not enough - they land ~13 cells apart, so
+  `bodyFit` still had nowhere to step). Effect on room 0: 1262 impassable cells relieved, routable
+  from me 2 -> 48149.
+- What that does *not* say: the brick band along the top of this room is still a wall. The mortar
+  rule stays, walls I never stood on are untouched (the selftest checks exactly that), and where the
+  two readings disagree the tiebreaker is the cell I have occupied, not a new colour threshold.
