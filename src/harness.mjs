@@ -56,6 +56,8 @@ function keyline(m) {
   return `key ${m.key} ${act}${m.scan ? ' scan' : ''} ${hold}`;
 }
 
+function resolve(name) { return path.isAbsolute(name) ? name : path.join(FRAMES, name); }
+
 async function exec(msg) {
   const cmd = msg.cmd;
   switch (cmd) {
@@ -67,21 +69,77 @@ async function exec(msg) {
     case 'filter': return bridgeT('filter ' + (msg.args || ''));
     case 'held': return bridgeT('held');
     case 'shot': {
-      const name = msg.name || ('f' + Date.now() + '.png');
-      const p = path.isAbsolute(name) ? name : path.join(FRAMES, name);
+      const p = resolve(msg.name || ('f' + Date.now() + '.png'));
       fs.mkdirSync(path.dirname(p), { recursive: true });
       return bridgeT('shot ' + p + (msg.mode === 'blt' ? ' blt' : ''), 20000);
     }
+    case 'diff': return bridgeT('diff ' + resolve(msg.a) + ' ' + resolve(msg.b), 20000);
     case 'key': return bridgeT(keyline(msg));
     case 'seq': {
       const out = [];
       for (const step of msg.steps) {
         if (step.sleep) { await sleep(step.sleep); out.push({ sleep: step.sleep }); continue; }
         if (step.cmd === 'shot' || step.shot) { out.push(await exec({ cmd: 'shot', name: step.shot || step.name, mode: step.mode })); continue; }
+        if (step.diff) { out.push(await exec({ cmd: 'diff', a: step.diff[0], b: step.diff[1] })); continue; }
+        if (step.cmd === 'watch') { out.push(await exec({ cmd: 'watch', frames: step.frames, ms: step.ms, prefix: step.prefix })); continue; }
         out.push(await bridgeT(keyline(step)));
         if (step.after) await sleep(step.after);
       }
       return { ok: true, steps: out };
+    }
+    case 'watch': {
+      // capture N frames ms apart and report change between neighbours
+      const n = msg.frames || 4, gap = msg.ms || 1000, pre = msg.prefix || 'w';
+      const names = [];
+      for (let i = 0; i < n; i++) names.push(`${pre}${Date.now()}_${i}.png`);
+      const shots = [];
+      for (let i = 0; i < n; i++) {
+        shots.push(await exec({ cmd: 'shot', name: names[i] }));
+        if (i < n - 1) await sleep(gap);
+      }
+      const diffs = [];
+      for (let i = 1; i < n; i++) {
+        const d = await exec({ cmd: 'diff', a: names[i - 1], b: names[i] });
+        diffs.push({ pair: [names[i - 1], names[i]], changed: d.changed, bbox: d.bbox });
+      }
+      return { ok: true, frames: names, diffs };
+    }
+    case 'page': {
+      // advance dialogue, then hold the capture until the text stops changing
+      const n = msg.pages || 1, out = [];
+      for (let i = 0; i < n; i++) {
+        if (msg.key !== false) await bridgeT(keyline({ key: msg.key || 'z' }));
+        let prev = `pg_a${Date.now()}_${i}.png`;
+        await exec({ cmd: 'shot', name: prev });
+        let stable = 0;
+        for (let k = 0; k < 16 && stable < 2; k++) {
+          await sleep(250);
+          const cur = `pg_b${Date.now()}_${i}_${k}.png`;
+          await exec({ cmd: 'shot', name: cur });
+          const d = await exec({ cmd: 'diff', a: prev, b: cur });
+          stable = (d.changed || 0) < 40 ? stable + 1 : 0;
+          prev = cur;
+        }
+        out.push(prev);
+      }
+      return { ok: true, pages: out };
+    }
+    case 'probe': {
+      // press each key, then report changed pixels and where
+      const gap = msg.ms || 500;
+      let prev = `probe_a${Date.now()}.png`;
+      await exec({ cmd: 'shot', name: prev });
+      const res = [];
+      for (const k of msg.keys) {
+        await bridgeT(keyline({ key: k, hold: msg.hold }));
+        await sleep(gap);
+        const cur = `probe_b${Date.now()}_${k}.png`;
+        await exec({ cmd: 'shot', name: cur });
+        const d = await exec({ cmd: 'diff', a: prev, b: cur });
+        res.push({ key: k, changed: d.changed, bbox: d.bbox });
+        prev = cur;
+      }
+      return { ok: true, last: prev, results: res };
     }
     case 'ping': return { ok: true, t: Date.now() };
     default: return { ok: false, err: 'unknown cmd ' + cmd };

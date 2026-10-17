@@ -1,7 +1,6 @@
-Harness: capture/input bridge + ws sidecar + stdio player CLI
+Add diff/watch/probe/page observation tools and foreground fix
 
-- src/bridge/bridge.cs: PrintWindow/CopyFromScreen capture, SendInput keys, window filter by title/pid
-- src/harness.mjs: Node sidecar with serialized bridge pipe, ws on 127.0.0.1:8789
-- src/play.mjs: structured stdio interface (find, focus, shot, press, hold, seq)
-- ws vendored offline from an existing local install
-- docs split: ARCHITECTURE.md engineering vs GAMEPLAY.md player-observable
+- bridge: pixel diff command, attach-thread foreground focus, auto-focus before key
+- harness: watch (timed change detection), probe (per-key response map), page (capture until text stops typing)
+- play.mjs: diff, watch, probe, page subcommands
+- GAMEPLAY.md: flower encounter, SOUL/LV/HP lesson, two mistake postmortems

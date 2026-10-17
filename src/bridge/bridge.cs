@@ -21,6 +21,28 @@ class Bridge
     [StructLayout(LayoutKind.Sequential)] struct RECT { public int l, t, r, b; }
     [StructLayout(LayoutKind.Sequential)] struct POINT { public int x, y; }
 
+    [DllImport("kernel32.dll")] static extern uint GetCurrentThreadId();
+    [DllImport("user32.dll")] static extern bool AttachThreadInput(uint a, uint b, bool attach);
+    [DllImport("user32.dll")] static extern bool SetActiveWindow(IntPtr h);
+
+    // Windows refuses SetForegroundWindow from a background process; borrowing the
+    // foreground thread's input queue is the standard way in. Returns the thread id
+    // that was attached, for Detach().
+    static uint AttachTo(IntPtr h)
+    {
+        uint pid;
+        uint fgTid = GetWindowThreadProcessId(GetForegroundWindow(), out pid);
+        uint tid = GetCurrentThreadId();
+        if (fgTid != 0 && fgTid != tid) AttachThreadInput(fgTid, tid, true);
+        SetActiveWindow(h);
+        return fgTid;
+    }
+    static void Detach(uint fgTid)
+    {
+        uint tid = GetCurrentThreadId();
+        if (fgTid != 0 && fgTid != tid) AttachThreadInput(fgTid, tid, false);
+    }
+
     delegate bool EnumProc(IntPtr h, IntPtr l);
 
     [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
@@ -190,9 +212,13 @@ class Bridge
                     case "focus":
                     {
                         IntPtr h = FindWindow();
-                        if (h == IntPtr.Zero) { Console.WriteLine("{\"ok\":false}"); break; }
+                        if (h == IntPtr.Zero) { Console.WriteLine("{\"ok\":false,\"err\":\"no window\"}"); break; }
                         if (IsIconic(h)) ShowWindow(h, 9);
-                        Console.WriteLine("{\"ok\":" + SetForegroundWindow(h).ToString().ToLower() + "}");
+                        uint t = AttachTo(h);
+                        bool r = SetForegroundWindow(h);
+                        Detach(t);
+                        Console.WriteLine("{\"ok\":" + r.ToString().ToLower() + ",\"foreground\":" +
+                            (GetForegroundWindow() == h).ToString().ToLower() + "}");
                         break;
                     }
                     case "fg":
@@ -216,8 +242,34 @@ class Bridge
                         b.Dispose();
                         break;
                     }
+                    case "diff":
+                    {
+                        if (p.Length < 3) { Console.WriteLine("{\"ok\":false,\"err\":\"need two paths\"}"); break; }
+                        Bitmap a = new Bitmap(p[1]), b = new Bitmap(p[2]);
+                        int w = Math.Min(a.Width, b.Width), hh = Math.Min(a.Height, b.Height);
+                        long changed = 0, sumabs = 0; int minx = w, miny = hh, maxx = -1, maxy = -1;
+                        for (int y = 0; y < hh; y++)
+                            for (int x = 0; x < w; x++)
+                            {
+                                Color ca = a.GetPixel(x, y), cb = b.GetPixel(x, y);
+                                int d = Math.Abs(ca.R - cb.R) + Math.Abs(ca.G - cb.G) + Math.Abs(ca.B - cb.B);
+                                if (d > 12)
+                                {
+                                    changed++; sumabs += d;
+                                    if (x < minx) minx = x; if (x > maxx) maxx = x;
+                                    if (y < miny) miny = y; if (y > maxy) maxy = y;
+                                }
+                            }
+                        Console.WriteLine("{\"ok\":true,\"changed\":" + changed + ",\"pixels\":" + ((long)w * hh) +
+                            ",\"sumdiff\":" + sumabs + ",\"bbox\":[" + minx + "," + miny + "," + maxx + "," + maxy + "]}");
+                        a.Dispose(); b.Dispose();
+                        break;
+                    }
                     case "key":
                     {
+                        IntPtr gh = FindWindow();
+                        uint tt = 0;
+                        if (gh != IntPtr.Zero && GetForegroundWindow() != gh) { tt = AttachTo(gh); SetForegroundWindow(gh); }
                         string name = p[1]; string act = p.Length > 2 ? p[2] : "press";
                         bool scan = false; int hold = 0;
                         for (int i = 3; i < p.Length; i++)
@@ -232,6 +284,7 @@ class Bridge
                         if (down || (!up)) r1 = SendKey((ushort)vk, sc, true, scan);
                         if (!down && !up && hold > 0) System.Threading.Thread.Sleep(hold);
                         if (up || (!down)) r2 = SendKey((ushort)vk, sc, false, scan);
+                        Detach(tt);
                         Console.WriteLine("{\"ok\":" + (r1 && r2).ToString().ToLower() + ",\"vk\":" + vk + ",\"scan\":" + sc + ",\"hold\":" + hold + "}");
                         break;
                     }
