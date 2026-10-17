@@ -181,6 +181,7 @@ function saveRoom(r) {
     r.meta.land = landmarks(r, r.meta.anchor);
   }
   const meta = { ...r.meta };
+  if (r.veto) meta.veto = [...r.veto]; // moves that failed three times outlive this walk
   if (r.meta.prevBuf) fs.writeFileSync(`${DIR}/prev.bin`, r.meta.prevBuf); // frame buffer stays out of the JSON sidecar
   delete meta.prevBuf;
   fs.writeFileSync(statePath() + '.bin', Buffer.from(r.grid.buffer));
@@ -415,6 +416,8 @@ function bfs(r, start, goal, cap = 500000) {
     // read as unreachable and the walk quit inside a half-mapped room.
     if (Math.abs(x - gx) + Math.abs(y - gy) <= 3) { end = cur; break; }
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      // a move that failed three times in a row is not on the graph at all
+      if (r.veto && r.veto.has(`${x},${y}|${dx === 1 ? 'right' : dx === -1 ? 'left' : dy === 1 ? 'down' : 'up'}`)) continue;
       const nx = x + dx, ny = y + dy;
       if (nx < 1 || nx >= GW - 1 || ny < 1 || ny >= GH - 1) continue;
       const ni = gidx(nx, ny);
@@ -805,6 +808,17 @@ function selftest() {
   const path = bfs(r, [795, 500], [825, 500]);
   ok(path && path.some((c) => c[1] >= 515), 'bfs did not route around the tested wall');
   ok(!(path && path.some((c) => c[0] >= 809 && c[0] <= 811 && c[1] <= 513)), 'bfs walked through a tested wall');
+  {
+    // a move that failed three times must leave the routing graph, otherwise the walker presses
+    // into the same ledge lip until its step budget runs out
+    const p0 = bfs(r, [795, 500], [825, 500]);
+    const [nx, ny] = p0[1];
+    const d0 = nx > 795 ? 'right' : nx < 795 ? 'left' : ny > 500 ? 'down' : 'up';
+    r.veto = new Set([`795,500|${d0}`]);
+    const p1 = bfs(r, [795, 500], [825, 500]);
+    ok(!p1 || !(p1[1][0] === nx && p1[1][1] === ny), `the vetoed first move ${d0} was still planned`);
+    r.veto = null;
+  }
   const r2 = { grid: new Uint8Array(GW * GH), meta: { cam: [0, 0], trail: [] } };
   for (let y = 490; y <= 520; y++) for (let x = 790; x <= 830; x++) r2.grid[gidx(x, y)] = FLOOR;
   markBlocked(r2, [800, 500], 'right');
@@ -954,6 +968,8 @@ function walk(mode, steps) {
   }
   console.log(`walk ${mode}: cell ${start} -> ${tgx},${tgy}`);
   let blocked = 0, stuckEvents = 0, dialogEvents = 0;
+  const strikes = new Map();
+  r.veto = new Set(r.meta.veto || []);
   for (let i = 0; i < steps; i++) {
     const cur = cellOf(...r.meta.world);
     let path = bfs(r, cur, [tgx, tgy]);
@@ -1092,7 +1108,15 @@ function walk(mode, steps) {
         continue;
       }
     }
-    if (res.moved < 6) markBlocked(r, cur, dir);
+    if (res.moved < 6) {
+      markBlocked(r, cur, dir);
+      // The same move failing over and over is not bad luck: walk21 spent 41 re-targets pressing
+      // right into the ledge lip at 1066,820 because every replan found a route through the fan of
+      // cells around it. Three strikes and this exact move is off the routing graph.
+      const key = `${cur[0]},${cur[1]}|${dir}`;
+      strikes.set(key, (strikes.get(key) || 0) + 1);
+      if (strikes.get(key) === 3) { r.veto.add(key); console.log(`step ${i}: ${dir} out of ${cur} failed three times, vetoed for the rest of this walk`); }
+    }
     blocked = res.moved < 6 ? blocked + 1 : 0;
     console.log(`step ${i}: ${dir} moved ${res.moved.toFixed(0)}px -> world ${r.meta.world.map(Math.round)} blocked=${blocked} path=${path.length}`);
     saveRoom(r);
