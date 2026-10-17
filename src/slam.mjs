@@ -210,6 +210,27 @@ function spriteBoxes(b) {
 // colour and the brickwork carries the same purple. Head and hair classify as OTH, which
 // paint already drops. A whole-body mask punched a 15x23-cell hole my walked-disc could not
 // bridge, so BFS saw every room as a box sealed around me - hence "nothing left to map".
+// The message box sits in the same band of the window every time: a black field with a white frame
+// about 400x70 px. Two walks painted that rectangle - border, glyphs and all - into the grid as a
+// false wing of the room. A pair of long, aligned white runs (top and bottom border) is the box; a
+// single run is pale scenery and must not blank a region of the map.
+function boxRect(b) {
+  const runs = [];
+  for (let y = CY0; y < 460; y += 2) {
+    let run = 0, start = 0, best = null;
+    for (let x = 0; x <= CX1; x++) {
+      const p = (y * CW + x) * 4;
+      if (b[p] > 200 && b[p + 1] > 200 && b[p + 2] > 200) { if (!run) start = x; run++; if (!best || run > best.len) best = { x0: start, len: run }; } else run = 0;
+    }
+    if (best && best.len >= 200) runs.push({ y, x0: best.x0, len: best.len });
+  }
+  for (const top of runs) for (const bot of runs) {
+    if (bot.y <= top.y + 20 || bot.y > top.y + 220) continue;
+    if (Math.abs(bot.x0 - top.x0) > 6 || Math.abs(bot.len - top.len) > 6) continue;
+    return [top.x0, top.x0 + top.len, top.y, bot.y];
+  }
+  return null;
+}
 function paintMask(b) {
   const m = [];
   const p = playerPosFrom(b);
@@ -219,6 +240,8 @@ function paintMask(b) {
       !(p && Math.abs((robe[0] + robe[1]) / 2 - p.x) < 24 && Math.abs((robe[2] + robe[3]) / 2 - p.y) < 40)) {
     m.push([robe[0] - 3, robe[1] + 3, robe[2] - 3, robe[3] + 3]);
   }
+  const box = boxRect(b);
+  if (box) m.push(box); // the message box is drawn over the room; it is not part of it
   return m;
 }
 
@@ -978,7 +1001,20 @@ function selftest() {
     ok(rewriteOk(i, FLOOR, SPIKE), 'two agreeing frames did not allow the rewrite');
     ok(!rewriteOk(i, FLOOR, SPIKE), 'the pending count was not reset after a rewrite');
   }
-  console.log('selftest ok: align anti-aliasing, transition classifier, seam cleanup, bfs arrival, frontier reach and cap, blocked marking, footprint evidence, body-width lanes, room identity, paint hysteresis');
+  {
+    // the box that got painted into the map: a black field with a white frame and white glyphs,
+    // drawn in the same band every time. It is not scenery and must never reach the grid.
+    const f = Buffer.alloc(CW * CHF * 4);
+    for (let y = 0; y < CHF; y++) for (let x = 0; x < CW; x++) { const p = (y * CW + x) * 4; f[p] = f[p + 1] = f[p + 2] = 120; }
+    for (let y = 60; y <= 130; y++) for (let x = 50; x <= 450; x++) { const p = (y * CW + x) * 4; f[p] = f[p + 1] = f[p + 2] = (y === 60 || y === 130 || x === 50 || x === 450) ? 255 : 0; }
+    const rct = boxRect(f);
+    ok(rct && Math.abs(rct[0] - 50) <= 2 && Math.abs(rct[1] - 451) <= 3 && Math.abs(rct[2] - 60) <= 2 && Math.abs(rct[3] - 130) <= 3, `boxRect on a drawn box gave ${rct}`);
+    const decoy = Buffer.alloc(CW * CHF * 4);
+    for (let y = 0; y < CHF; y++) for (let x = 0; x < CW; x++) { const p = (y * CW + x) * 4; decoy[p] = decoy[p + 1] = decoy[p + 2] = 120; }
+    for (let x = 100; x <= 400; x++) { const p = (200 * CW + x) * 4; decoy[p] = decoy[p + 1] = decoy[p + 2] = 255; }
+    ok(boxRect(decoy) === null, 'a single pale edge was mistaken for a message box');
+  }
+  console.log('selftest ok: align anti-aliasing, transition classifier, seam cleanup, bfs arrival, frontier reach and cap, blocked marking, footprint evidence, body-width lanes, room identity, paint hysteresis, message box mask');
 }
 
 function walk(mode, steps) {
