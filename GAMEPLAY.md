@@ -373,3 +373,18 @@ results. No engine internals, no outside walkthroughs.
 - Some room pairs here change with no fade. The walk logged a fade and then "that is room 0 again
   (117 landmarks line up)", and walking north out of the statue room entered a Toriel room with no
   dark frame at all. The identity matcher still needs the paint-contradicts-grid test; unfixed.
+
+### I finally talked to her instead of shoving her, and the room told me what it is (run 1)
+- Her whole script, from `logs/dialog.jsonl`: "* There is another puzzle in this room. . ." then
+  "* I wonder if you can solve it". Proximity-triggered, repeated on every approach, and it is the
+  complete set - she never offers anything else and never promises to act, so there is no follow-up
+  behaviour to wait for.
+- What she does instead: she stands on the brick block's **only walkable row**. The block is three rows
+  tall and only the middle one is floor; she is in it, and she only turns to face me, then to face the
+  spikes. 1200 ms of held `right` moved neither her nor the block, so the block is not pushable from
+  this side - the tile a push would need is the one she occupies
+  (`evidence/run1/28_toriel_stands_in_the_bridges_only_walkable_row.png`).
+- Her line says the *room* has another puzzle, and the room's other furniture is the four mirrored
+  yellow arrow plates plus the sign "* The western room is the eastern room s blueprint." - that points
+  at the twin room, where a block sits between two channels with nothing standing on it. Pushing is
+  testable there, not here.
