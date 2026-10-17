@@ -15,6 +15,9 @@ fs.mkdirSync(FRAMES, { recursive: true });
 const OCRDIR = path.join(ROOT, 'logs', 'ocr');
 fs.mkdirSync(OCRDIR, { recursive: true });
 const OCRBIN = path.join(OCRDIR, 'live.bin');
+const WATCHBIN = path.join(OCRDIR, 'watch.bin');
+const DIALOG_LOG = path.join(ROOT, 'logs', 'dialog.jsonl');
+let busyUntil = 0; // set while latency-sensitive work runs; the watcher stands down
 
 const child = spawn(BRIDGE, process.argv.slice(2), { stdio: ['pipe', 'pipe', 'pipe'] });
 child.stderr.on('data', (d) => process.stderr.write('[bridge] ' + d));
@@ -85,6 +88,7 @@ async function exec(msg) {
       // reflex aid: reads only visible pixels, sends ordinary arrow-key holds.
       // picks the box position that maximises distance from predicted pellets.
       const secs = msg.seconds || 8;
+      busyUntil = Date.now() + secs * 1000 + 1500; // dialog watcher stands down: bullets need the bridge
       let heldX = null, heldY = null, iters = 0, bulletFrames = 0, closest = 1e9;
       let last = [], empty = 0, ended = '';
       const setAxis = async (axis, dir) => {
@@ -204,42 +208,7 @@ async function exec(msg) {
       if (!d.ok) return d;
       return { ok: true, text: readText(fs.readFileSync(OCRBIN), d.w, d.h, msg.set || 'dialog') };
     }
-    case 'readwatch': {
-      // sample the screen text continuously: catches pages that advance by themselves
-      const ms = (msg.seconds || 6) * 1000, gap = msg.gap || 350;
-      const seen = [];
-      const end = Date.now() + ms;
-      while (Date.now() < end) {
-        const r = await exec({ cmd: 'text', set: msg.set });
-        const t = (r.text || '').trim();
-        if (t && (!seen.length || seen[seen.length - 1].t !== t)) seen.push({ t, at: Date.now() });
-        await sleep(gap);
-      }
-      return { ok: true, count: seen.length, pages: seen.map((s) => ({ at: s.at, text: s.t })) };
-    }
-    case 'dialogwatch': {
-      // poll the text box cheaply; when its ink settles (typing done), OCR once and broadcast a dialog event
-      const gap = msg.gap || 150, until = Date.now() + (msg.seconds || 30) * 1000;
-      let last = '', same = 0, lastOpen = false, events = [], lastText = '';
-      while (Date.now() < until) {
-        const b = await bridgeT('box ' + OCRBIN, 8000);
-        if (b.ok && b.open) {
-          if (b.hash === last) same++; else { last = b.hash; same = 0; }
-          if (same >= 2) {
-            const text = readText(fs.readFileSync(OCRBIN), b.w, b.h, msg.set || 'dialog');
-            same = 0;
-            if (text && text !== lastText) {
-              lastText = text;
-              events.push({ at: Date.now(), text });
-              for (const c of wss.clients) if (c.readyState === 1) c.send(JSON.stringify({ event: 'dialog', text }));
-            }
-          }
-          lastOpen = true;
-        } else { last = ''; same = 0; if (lastOpen) { lastOpen = false; lastText = ''; for (const c of wss.clients) if (c.readyState === 1) c.send(JSON.stringify({ event: 'dialogclosed' })); } }
-        await sleep(gap);
-      }
-      return { ok: true, count: events.length, pages: events };
-    }
+    case 'dialoglog': return { ok: true, count: dialogRing.length, pages: dialogRing.slice(-(msg.n || 12)) };
     case 'probe': {
       // press each key, then report changed pixels and where
       const gap = msg.ms || 500;
@@ -272,3 +241,43 @@ wss.on('connection', (ws) => {
     ws.send(JSON.stringify({ id: msg.id, ...res }));
   });
 });
+
+// Always-on dialog watcher: no command needed to catch text. When a white text
+// box's ink settles (typing finished), OCR it once, log it to logs/dialog.jsonl,
+// print it, and broadcast a dialog event to every connected client.
+let lastHash = '', sameCount = 0, boxOpen = false, lastText = '';
+const dialogRing = [];
+async function dialogLoop() {
+  for (;;) {
+    try {
+      if (Date.now() > busyUntil) {
+        const b = await bridgeT('box ' + WATCHBIN, 8000);
+        if (b && b.ok && b.open) {
+          if (b.hash === lastHash) sameCount++; else { lastHash = b.hash; sameCount = 0; }
+          if (sameCount >= 2) {
+            sameCount = 0;
+            const text = readText(fs.readFileSync(WATCHBIN), b.w, b.h, 'dialog');
+            if (text && text !== lastText) {
+              lastText = text;
+              const ev = { at: Date.now(), text };
+              dialogRing.push(ev);
+              if (dialogRing.length > 300) dialogRing.shift();
+              fs.appendFileSync(DIALOG_LOG, JSON.stringify(ev) + '\n');
+              console.log('[dialog] ' + text.replace(/\n/g, ' / '));
+              for (const c of wss.clients) if (c.readyState === 1) c.send(JSON.stringify({ event: 'dialog', text }));
+            }
+          }
+          boxOpen = true;
+        } else {
+          lastHash = ''; sameCount = 0;
+          if (boxOpen) {
+            boxOpen = false; lastText = '';
+            for (const c of wss.clients) if (c.readyState === 1) c.send(JSON.stringify({ event: 'dialogclosed' }));
+          }
+        }
+      }
+    } catch { /* the watcher never dies; next poll retries */ }
+    await sleep(250);
+  }
+}
+dialogLoop();

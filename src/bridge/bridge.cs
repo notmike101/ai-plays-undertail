@@ -120,26 +120,27 @@ class Bridge
         for (int i = 0; i < r.Length; i++) r[i] = Convert.ToByte(s.Substring(i * 2, 2), 16);
         return r;
     }
+    // Both dialog styles: the overworld bubble (filled white, black text) and the
+    // battle box (white outline, black inside, white text). A row that is ~all white
+    // over a >=300px span marks the top; the lowest such row within 420px is the bottom.
     static int FindBox(int[] px, int w, int hh, out int top, out int bot, out int bx0, out int bx1)
     {
         top = -1; bot = -1; bx0 = -1; bx1 = -1;
-        const int yTop = 45;
-        for (int y = yTop; y < hh && bot < 0; y++)
+        for (int y = 45; y < hh - 40; y++)
         {
-            int run = 0, start = 0;
+            int run = 0, start = 0, r0 = -1, r1 = -1;
             for (int x = 0; x <= w; x++)
             {
                 if (x < w && IsWhite(px[y * w + x])) { if (run == 0) start = x; run++; }
-                else
-                {
-                    if (run >= 60 && ThinWhite(px, w, hh, start + run / 2, y))
-                    {
-                        int ey = FindBottom(px, w, hh, y, start, start + run - 1);
-                        if (ey > 0) { top = y; bot = ey; bx0 = start; bx1 = start + run - 1; return 1; }
-                    }
-                    run = 0;
-                }
+                else { if (run >= 300) { r0 = start; r1 = start + run - 1; break; } run = 0; }
             }
+            if (r0 < 0) continue;
+            int last = -1;
+            for (int yy = y + 30; yy <= y + 420 && yy < hh; yy++)
+                if (RowAll(px, w, yy, r0, r1)) last = yy;
+            if (last < 0) continue;
+            if (!ColFrac(px, w, r0 + 2, y, last) || !ColFrac(px, w, r1 - 2, y, last)) continue;
+            top = y; bot = last; bx0 = r0; bx1 = r1; return 1;
         }
         return 0;
     }
@@ -554,18 +555,28 @@ class Bridge
                         long ink = 0;
                         if (found == 1)
                         {
+                            // ink = minority colour inside: black glyphs on a white bubble,
+                            // or white glyphs on the black battle box
+                            long wcount = 0, dcount = 0;
                             for (int y = btop + 6; y <= bbot - 6; y++)
                                 for (int x = bbx0 + 6; x <= bbx1 - 6; x++)
                                 {
                                     int v = bpx[y * bw2 + x];
-                                    if (!IsWhite(v))
-                                    {
-                                        ink++;
-                                        hash ^= (v & 0xFFFFFF);
-                                        hash *= 1099511628211L;
-                                        hash ^= ((long)x * 31 + (y & 7));
-                                        hash *= 1099511628211L;
-                                    }
+                                    if (IsWhite(v)) wcount++;
+                                    else if ((v & 0xFF) < 70 && ((v >> 8) & 0xFF) < 70 && ((v >> 16) & 0xFF) < 70) dcount++;
+                                }
+                            bool darkInk = dcount <= wcount;
+                            for (int y = btop + 6; y <= bbot - 6; y++)
+                                for (int x = bbx0 + 6; x <= bbx1 - 6; x++)
+                                {
+                                    int v = bpx[y * bw2 + x];
+                                    bool isD = (v & 0xFF) < 70 && ((v >> 8) & 0xFF) < 70 && ((v >> 16) & 0xFF) < 70;
+                                    if (darkInk ? !isD : !IsWhite(v)) continue;
+                                    ink++;
+                                    hash ^= (v & 0xFFFFFF);
+                                    hash *= 1099511628211L;
+                                    hash ^= ((long)x * 31 + (y & 7));
+                                    hash *= 1099511628211L;
                                 }
                         }
                         Console.WriteLine("{\"ok\":true,\"open\":" + (found == 1 ? "true" : "false") +

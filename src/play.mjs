@@ -42,8 +42,7 @@ switch (cmd) {
   case 'wait': await sleep(Number(arg[1] || 100)); out = { ok: true }; break;
   case 'text': out = await req({ cmd: 'text' }); break;
   case 'readtext': out = await req({ cmd: 'readtext', name: arg[1] }); break;
-  case 'readwatch': out = await req({ cmd: 'readwatch', seconds: Number(arg[1] || 6), gap: Number(arg[2] || 350) }); break;
-  case 'dialogwatch': out = await req({ cmd: 'dialogwatch', seconds: Number(arg[1] || 30), gap: Number(arg[2] || 150) }); break;
+  case 'dialoglog': out = await req({ cmd: 'dialoglog', n: Number(arg[1] || 12) }); break;
   case 'raw': out = await req({ cmd: 'raw', line: arg.slice(1).join(' ') }); break;
   case 'mem': out = await req({ cmd: 'mem', needle: arg[1] }); break;
   case 'ping': out = await req({ cmd: 'ping' }); break;

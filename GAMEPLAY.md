@@ -80,3 +80,65 @@ results. No engine internals, no outside walkthroughs.
 - Standing with Toriel after the rescue. LV 1, HP 20/20. No save point seen yet.
 - Instance note: the pre-existing game process was replaced by a clean launch from the
   install directory; that instance is the one being played.
+
+### Save point, Toriel's home, the corridor room (run 1)
+- Found a save point in the ruins entrance area: examining it shows
+  "(The shadow of the ruins / looms above, filling you with / determination.)" and
+  "(HP fully restored.)"; pressing Z opens the save menu (`EMPTY LV 0 0:00`,
+  `Save` / `Return`), and saving prints "File saved." Location shown: **Ruins -
+  Entrance**. I saved there (LV 1, HP 20/20).
+- Toriel led me into her home area: a wide room with stone floor buttons and a wall
+  plaque; walking on the buttons and pressing Z near them did nothing, and she had
+  already gone through the open upper passage.
+- Her teaching lines from that room: "Welcome to your new home,", "Allow me to
+  educate you in the operation of the RUINS.", "The RUINS are full of puzzles.",
+  "Ancient fusions between diversions and doorkeys.", "One must solve them to move
+  from room to room.", "Please adjust yourself to the sight of them.", "To make
+  progress here, you will need to trigger several switches.", "Do not worry, I have
+  labelled the ones that you need to flip."
+- Honest gap: while my harness was restarting, several of her pages auto-advanced
+  and I never read them. Those lines are lost to me; noted here rather than
+  guessed at.
+
+### The labelled-switch puzzle (run 1, solved)
+- The room: a long corridor with tall water columns (water above and below a brick
+  middle), wall notches, and small yellow tablets on the wall, each ringed by
+  blinking yellow arrow marks. Examining a tablet reads: "* Please press this
+  switch." signed "TORIEL".
+- Wrong guesses I tried and dropped, each checked against the screen: the brick
+  sections as floor plates (standing on them changed nothing), the dark recess at
+  the top of a waterfall as the switch (Z there did nothing), the corridor's stone
+  blocks as an examinable door (no text), walking up the waterfall to a hidden
+  passage (walkable, leads nowhere), and a multi-press sequence on a tablet (no
+  change anywhere in the room).
+- What actually worked: stand in the notch directly under a tablet that carries the
+  arrow markings, face it, press Z once. The stone blocks closing the passage at
+  the far right of the room moved and the way opened (measured: 2054 changed pixels
+  in the gate area; the gate is visibly lower in the next frame).
+- Toriel's confirmation, read in full: "* Splendid", "* I am proud of you,
+  little one.", "* Go on, press the switch on the left." (she nudged me to the
+  labelled tablet when I hesitated), then "* Let us move to the next room."
+- Learning: the arrow markings are her labels; plain yellow tablets without them do
+  nothing. Pressing must be done standing right at the tablet, facing it.
+
+### Toriel's battle lesson and the training dummy (run 1)
+- Her lesson, read page by page: "As a human living in the UNDERGROUND, monsters
+  may attack you.", "You will need to be prepared for this situation.", "However,
+  worry not / The process is simple.", "When you encounter a monster, you will
+  enter a FIGHT.", "While you are in a FIGHT, strike up a friendly conversation.",
+  "Stall for time. / I will come to resolve the conflict.", "Practice talking to
+  the dummy."
+- I examined the dummy: "* Dummy", "* Dummy stands around absentmindedly.",
+  "* Dummy looks like it's going to fall over."
+- My mistake: a menu selection landed on FIGHT instead of ACT and the attack bar
+  started; I let the swing resolve rather than forcing it. Result: "* YOU WON!",
+  "* You earned 0 EXP and 0 gold." The dummy gave nothing, so no EXP was taken from
+  a monster, but I did strike it against Toriel's instruction to talk. I still owe
+  the dummy a proper ACT/talk, which is what she asked for.
+- Evidence frames for this stretch: `logs/frames/` (now5, live, dial1, d1, d2, j1,
+  k1, k2, m1) and the automatic dialogue log `logs/dialog.jsonl`.
+
+### Reading every page reliably
+- The harness now reports dialogue on its own: whenever a text box's ink settles,
+  the text is printed and appended to `logs/dialog.jsonl`. Every line quoted above
+  came from that log or from a captured page frame, not from memory.
