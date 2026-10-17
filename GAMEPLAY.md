@@ -401,12 +401,23 @@ results. No engine internals, no outside walkthroughs.
   seals the eastern room's crossing completely: she is standing in that row.
 - The arrow decal and its two yellow plates are not readable either: `z` from the floor directly under
   them gives nothing, like the grey wall plaques. They are painted hint art.
-- The block is not pushable in either room; a sustained push moved neither it nor Toriel.
+- VOID: "the block is not pushable in either room." Both push attempts were made while I stood against its
+  north or south face, which is not the block's walkable row, so a push could never register. The push is
+  untested from the row that actually touches it.
 - There is **no east bank** to the channel: the corridor I earlier called "the channel room's east side"
   is the same west corridor seen after a camera scroll. The spike field is therefore only enterable by
-  walking the brick block, and a stationary Toriel occupies that block's one walkable row - `z` at 25 px
-  on the same row produced no box, she never moves off it over 24 s of watching, and she cannot be pushed
-  (`evidence/run1/27_*`, `p1/p3` frames). The spike tiles remain untested underfoot because they are
-  unreachable, not because they were ruled solid.
+  walking the brick block. At the time Toriel occupied that block's one walkable row, and `z` at 25 px on
+  the same row produced no box (`evidence/run1/27_*`, `p1/p3` frames).
+  The spike tiles are still untested underfoot because they were unreachable at that moment, not because
+  they were ruled solid. She is **not stationary** - see the next entry - so that row is a state to break.
 - Map caution: the yellow `OTH` blobs that looked like floor pressure plates were **my own face pixels**
   painted along my trail. The only yellow art is the wall-band decal, which is not readable.
+- She **follows and leads**. When I left the channel room and walked through the octagon into the statue
+  room, she was right beside me there, and then in the ledge room; once she was facing east a moment before
+  the view scrolled east. Standing next to her for 24 s and seeing no movement is not evidence that she
+  never moves - it is evidence that she waits while I am inside her trigger zone. The honest reading: she
+  shadows the player and walks ahead, the way the game's own guide does.
+- Her hint `* There is another puzzle in this room. I wonder if you can solve it` fired again in a room with
+  no channel in it, so it is not a signature of the puzzle room and cannot be used to name one.
+- The grey wall plaque has never been read from true adjacency: my `z` presses there were taken while
+  facing away or about 245 px off. "Plaques have no text" is therefore still unproven.

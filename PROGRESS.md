@@ -115,16 +115,33 @@
 - The same room contains a raised ledge (lighter slab) that colour calls floor and the game calls
   wall; Toriel stands on top of it and re-opens "* There is another puzzle in this room. . ." while
   I am inside her trigger zone. The room's identity is **still unconfirmed** - no sign has been read.
+- **Toriel follows and leads.** After I walked away from the channel room she was beside me in the statue
+  room, then in the ledge room, and she was facing east just before the view scrolled east. The earlier
+  note "she stands on the block and is a permanent gate" is wrong: her occupying the block's one walkable
+  row is a state, not a fixture, so the channel can be re-tested once she is out of it.
+- Her line `* There is another puzzle in this room. I wonder if you can solve it` re-fires on entry while
+  I am inside her trigger zone - it fired again in the ledge room, which has no channel at all. It is not
+  a room signature and must not be used to identify one.
+- The channel has **no east bank**: the corridor logged as its east side is the same west corridor seen
+  after a camera scroll.
+- The grey wall plaque sits in the wall band; my "no text from it" readings were taken while facing away
+  or ~245 px off. It has never been read from true adjacency.
+- Untested probes, in priority order: step into the water (the solid claim is colour-only); push the block
+  while standing in its one walkable row (both earlier pushes pressed its non-walkable faces); lure
+  Toriel off the block and re-enter that row; read the plaque and the arrow decal from proper adjacency.
 
 ## Next actions
-1. Walk out of the plank room through the doorway behind me - the reachability flood now
-   targets cell 800,596 there, a 432-cell route the old frontier list could not see - and
-   confirm the signature match reuses the room I already mapped instead of minting a new
-   number. Then look for the unexplored exits of the earlier rooms.
-2. Keep reading every page: the watcher logs all of them; check
-   `tail -1 logs/dialog.jsonl` after each confirm press.
-3. Save at each save point; record the room name it shows.
-4. Fill `ENDINGS.md` as endings are actually reached; keep `evidence/run1/` current.
+1. After the frontier walk ends: `slam probe`, then take a shot and read it - the walker has moved me and
+   the grid only means anything inside the current `init` generation.
+2. Read the ledge-room plaque from true adjacency (stand under it, face it, `z`, then `z` again, then MOVE)
+   and zoom the yellow arrow decal - the only in-game instruction I have not actually decoded.
+3. In the channel room run the two physical probes: water walkability from the block's row, and a push
+   while standing in that same row. Commit a shot of each result to `evidence/run1/`.
+4. Follow Toriel when she leads - she is the only route hint the game itself offers, and she has now been
+   seen walking ahead rather than waiting.
+5. Save at each save point; record the room name it shows. Fill `ENDINGS.md` as endings are reached.
+6. Keep the pause contract: commit+push every change, re-anchor the grid (`slam init`) before stopping, and
+   leave `HANDOFF.md` pointing at the real position so another session can resume cold.
 
 ## Known technical limits
 - The OCR vocab is trained only from text I have already read on screen, so
