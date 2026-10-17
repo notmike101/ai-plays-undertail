@@ -346,7 +346,12 @@ function walkable(r, gx, gy) {
   if (c[BLOCKED] >= 3) return false;
   return WALK.has(top);
 }
-const SOLID = new Set([VOID, WATER, VINE, SPIKE, BLOCKED, BRICK]);
+// VOID is deliberately NOT here. The black outside a room is both the room outline and every
+// doorway out of it, and a clearance rule against black made it impossible to path anywhere
+// near an exit: no cell within 3 cells of the outline was routable, so a room I had fully
+// painted had no frontier to probe and the walker quit inside it. Black is still not
+// standable ground (walkable() keeps it out); it just does not shrink the corridor.
+const SOLID = new Set([WATER, VINE, SPIKE, BLOCKED, BRICK]);
 // My collision box is ~16 px = 8 cells across. Point pathing happily threads a 1-2 cell
 // crack that my body cannot enter, which is how the walker pressed right into a wall over
 // and over: BFS had a route, the game said no. Refuse any cell with ground I know is solid
@@ -442,7 +447,13 @@ function pickFrontier(r, cur, tried) {
   for (let gy = 1; gy < GH - 1; gy++) {
     for (let gx = 1; gx < GW - 1; gx++) {
       const i = gidx(gx, gy);
-      if (r.grid[i] !== UNKNOWN || tried.has(gx + ',' + gy)) continue;
+      // Black gaps count as unmapped ground too: in this art the way out of a room I have
+      // completely painted is drawn as a black notch, so an UNKNOWN-only frontier strands the
+      // walker inside a room it has fully seen. Each black target gets one honest try (the walk
+      // adds it to `tried`), and a failed attempt records the wall, so probing the whole outline
+      // costs one attempt per gap instead of one per cell.
+      const v = r.grid[i];
+      if ((v !== UNKNOWN && v !== VOID) || tried.has(gx + ',' + gy)) continue;
       let near = false;
       for (let dy = -1; dy <= 1 && !near; dy++) for (let dx = -1; dx <= 1; dx++) if (walkable(r, gx + dx, gy + dy)) near = true;
       if (!near) continue;
@@ -563,6 +574,22 @@ function markBlocked(r, cell, dir) {
     if (r.grid[i] === VOID || r.grid[i] === BLOCKED) continue;
     r.grid[i] = BLOCKED;
   }
+}
+// A message box covers my sprite, so "player not found" is normally the game talking to me and
+// not a dead end: print what it says, advance it with the ordinary confirm key, and only give up
+// once the box refuses to close.
+function boxText() { try { return (JSON.parse(execFileSync('node', ['src/play.mjs', 'text'], { stdio: 'pipe' }).toString()).text || '').trim(); } catch { return ''; } }
+function clearBox(r) {
+  const t = boxText();
+  if (t) console.log(`on screen: ${t.replace(/\n/g, ' ')}`);
+  for (let k = 0; k < 8; k++) {
+    const b = grab();
+    const p = playerPosFrom(b);
+    if (p) { r.meta.prevBuf = b; return p; }
+    sh(['press', 'z']);
+    sleep(450);
+  }
+  return null;
 }
 
 // one verified step; returns how far my world position actually moved
@@ -771,16 +798,16 @@ function selftest() {
     ok(!matchRoom(landmarks(rC, cellOf(0, 0)), [{ room: 3, anchor: cellA, land: landA, total: landA.length }]), 'a different room matched room 3');
   }
   {
-    // The floor tiles' 1-2 px black seams classify as VOID, the same value a real pit gets.
-    // Two seams 6 cells apart cut a corridor my body cannot cross, so bfs called the entire
-    // room disconnected - "walked out" with most of it still unexplored.
+    // The floor tiles' 1-2 px black seams classify as VOID, the same value a real pit gets, so
+    // they were painted as pits: they broke the scenery signature and, while the clearance rule
+    // still counted black as solid, they cut corridors my body could not cross.
     const r4 = { grid: new Uint8Array(GW * GH), meta: { cam: [0, 0], trail: [] } };
     for (let y = 480; y <= 530; y++) for (let x = 780; x <= 860; x++) r4.grid[gidx(x, y)] = FLOOR;
     for (let y = 480; y <= 530; y++) { r4.grid[gidx(810, y)] = VOID; r4.grid[gidx(816, y)] = VOID; }
     for (let y = 495; y <= 510; y++) for (let x = 840; x <= 855; x++) r4.grid[gidx(x, y)] = VOID; // a genuine pit
-    ok(!bfs(r4, [790, 500], [830, 500]), 'a seam-cut corridor was passable before the cleanup');
     thinSeamsToFloor(r4);
-    ok(bfs(r4, [790, 500], [830, 500]), 'the seam cleanup did not reconnect the corridor');
+    ok(r4.grid[gidx(813, 500)] === FLOOR, 'the seam cleanup left a thin seam painted as a pit');
+    ok(bfs(r4, [790, 500], [830, 500]), 'the seam-cut corridor is still not routable');
     ok(r4.grid[gidx(847, 502)] === VOID, 'the cleanup erased a real pit');
     ok(!bfs(r4, [790, 500], [847, 502]), 'the walker paths through the middle of a real pit');
   }
@@ -806,6 +833,19 @@ function selftest() {
     ok(p && p.t[0] > 1040, `the far unexplored edge behind the old search window was not picked (${p ? p.t : 'none'})`);
     ok(p && p.path.length > 320, `the route to it was not the long way around (${p && p.path.length})`);
   }
+  {
+    // A room I have completely painted has no UNKNOWN left, yet its way out is drawn as a black
+    // notch in the wall: an UNKNOWN-only frontier strands me inside a room I have fully seen.
+    const r7 = { grid: new Uint8Array(GW * GH), meta: { cam: [0, 0], trail: [] } };
+    for (let y = 500; y <= 540; y++) for (let x = 780; x <= 860; x++) r7.grid[gidx(x, y)] = FLOOR;
+    for (let y = 480; y <= 560; y++) for (let x = 760; x <= 880; x++) if (x < 780 || x > 860) r7.grid[gidx(x, y)] = VOID;
+    for (let y = 480; y <= 499; y++) for (let x = 780; x <= 860; x++) r7.grid[gidx(x, y)] = VOID;
+    for (let y = 541; y <= 560; y++) for (let x = 780; x <= 860; x++) r7.grid[gidx(x, y)] = VOID;
+    const p2 = pickFrontier(r7, [820, 520], new Set());
+    ok(p2 && r7.grid[gidx(p2.t[0], p2.t[1])] === VOID, `a fully painted room offered no frontier at all (${p2 ? p2.t : 'none'})`);
+    for (let y = 480; y <= 560; y++) for (let x = 775; x <= 865; x++) if (r7.grid[gidx(x, y)] === VOID) r7.grid[gidx(x, y)] = BLOCKED;
+    ok(!pickFrontier(r7, [820, 520], new Set()), 'a room whose whole outline is a tested wall still wants exploring');
+  }
   console.log('selftest ok: align anti-aliasing, transition classifier, seam cleanup, bfs arrival, frontier reach, blocked marking, room identity');
 }
 
@@ -813,8 +853,8 @@ function walk(mode, steps) {
   const r = loadRoom();
   const b0 = grab();
   r.meta.prevBuf = r.meta.prevBuf || b0;
-  const me0 = playerPosFrom(b0);
-  if (!me0) { console.log('player not found'); return; }
+  const me0 = playerPosFrom(b0) || clearBox(r);
+  if (!me0) { console.log('player not found'); saveRoom(r); return; }
   r.meta.me = [me0.x, me0.y];
   r.meta.world = [r.meta.cam[0] + me0.x, r.meta.cam[1] + me0.y + FEET];
   paint(r, b0, r.meta.cam); markRobe(r, b0, r.meta.cam); markFeet(r, r.meta.cam, me0);
@@ -837,7 +877,13 @@ function walk(mode, steps) {
   for (let i = 0; i < steps; i++) {
     const cur = cellOf(...r.meta.world);
     let path = bfs(r, cur, [tgx, tgy]);
-    if (!path || path.length <= 10) {
+    // A black gap is not standable ground, so bfs can only bring my body as close as it fits;
+    // that reads as "already arrived" and would strand me inside a room I have fully painted.
+    // Press into the gap instead: a failed step records the wall, a good one walks me through
+    // the doorway (and the loop's own fade/transition handling takes it from there).
+    const press = path !== null && path.length <= 10 && r.grid[gidx(tgx, tgy)] === VOID;
+    if (press) path = [cur, [tgx, tgy]];
+    if (!path || (path.length <= 10 && !press)) {
       if (mode === 'frontier') {
         tried.add(tgx + ',' + tgy);
         const p = pickFrontier(r, cur, tried);
@@ -856,10 +902,12 @@ function walk(mode, steps) {
             break;
           }
           tgx = q.t[0]; tgy = q.t[1];
+          if (r.grid[gidx(tgx, tgy)] === VOID) tried.add(tgx + ',' + tgy); // a black gap gets one honest try
           console.log(`step ${i}: retried the whole frontier list, retarget ${tgx},${tgy}`);
           continue;
         }
         tgx = p.t[0]; tgy = p.t[1];
+        if (r.grid[gidx(tgx, tgy)] === VOID) tried.add(tgx + ',' + tgy); // a black gap gets one honest try
         console.log(`step ${i}: new frontier target ${tgx},${tgy} (path ${p.path.length})`);
         continue;
       }
@@ -922,7 +970,13 @@ function walk(mode, steps) {
       saveRoom(r);
       continue;
     }
-    if (res.lost) { console.log(`step ${i}: player not found`); break; }
+    if (res.lost) {
+      const p = clearBox(r);
+      if (!p) { console.log(`step ${i}: player not found`); break; }
+      r.meta.me = [p.x, p.y];
+      r.meta.world = [r.meta.cam[0] + p.x, r.meta.cam[1] + p.y + FEET];
+      continue;
+    }
     if (res.moved < 6) markBlocked(r, cur, dir);
     blocked = res.moved < 6 ? blocked + 1 : 0;
     console.log(`step ${i}: ${dir} moved ${res.moved.toFixed(0)}px -> world ${r.meta.world.map(Math.round)} blocked=${blocked} path=${path.length}`);
