@@ -625,7 +625,7 @@ function markBlocked(r, cell, dir) {
 function boxText() { try { return (JSON.parse(execFileSync('node', ['src/play.mjs', 'text'], { stdio: 'pipe' }).toString()).text || '').trim(); } catch { return ''; } }
 function clearBox(r) {
   let last = '';
-  for (let k = 0; k < 12; k++) {
+  for (let k = 0; k < 4; k++) {
     const t = boxText();
     if (!t) break; // nothing on screen: the box is closed (or there never was one)
     if (t !== last) console.log(`on screen: ${t.replace(/\n/g, ' ')}`);
@@ -1081,7 +1081,9 @@ function walk(mode, steps) {
           dir === 'right' || dir === 'left' ? 'up' : 'left', dir === 'right' || dir === 'left' ? 'down' : 'right'];
         let moved = 0;
         for (const d2 of tries) {
-          const b2 = step(r, d2, 220);
+          // a long hold: while I stay inside her trigger zone the box re-opens as soon as it
+          // closes, so the escape has to clear the zone in one step (~80 px, not 40).
+          const b2 = step(r, d2, 450);
           if (b2.fade || b2.transition) { console.log(`step ${i}: the contact-break went ${d2} straight into a room change; ending the walk so the map stays honest`); i = steps; break; }
           moved = b2.moved || 0;
           if (moved >= 6) { console.log(`step ${i}: broke contact going ${d2}: ${moved.toFixed(0)}px`); break; }
