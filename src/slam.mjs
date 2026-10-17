@@ -307,6 +307,7 @@ function paint(r, b, cam) {
   }
   thinSeamsToFloor(r);
   stoodRepair(r);
+  thinBrick(r, cam);
 }
 
 // The floor tiles are drawn with 1-2 px black seams, and black is exactly what VOID means
@@ -432,10 +433,50 @@ const SOLID = new Set([WATER, VINE, SPIKE, BLOCKED, BRICK]);
 // clearance rule only earns its keep on ground I have merely inferred from colour.
 function bodyFit(r, gx, gy) {
   if (r.grid[gidx(gx, gy)] === PROVEN) return true;
+  if (THIN[gidx(gx, gy)]) return true; // a <=3 cell band is probed by walking, not by clearance
   for (const [dx, dy] of [[3, 0], [-3, 0], [0, 3], [0, -3]]) {
-    if (SOLID.has(r.grid[gidx(gx + dx, gy + dy)])) return false;
+    const i2 = gidx(gx + dx, gy + dy), v = r.grid[i2];
+    // a probeable band must not disqualify the floor next to it, or nothing can reach it
+    if (SOLID.has(v) && !(v === BRICK && THIN[i2])) return false;
   }
   return true;
+}
+
+// A BRICK band at most 3 cells thick is far more likely a misread shadow seam than a wall: this
+// room's dark floor keeps being painted VOID and its edges BRICK, and one such band sealed my whole
+// reachable area - walk34 reported no frontier at all while the colour shots show the wide room
+// continuing one band away. Thin bands are made pressable: BFS may plan through them, my body then
+// either moves (the cell was floor, footprints prove it) or fails (markBlocked makes the wall real).
+// Thick brick masses keep the "raised wall" verdict the mortar rule earned.
+const THIN = new Uint8Array(GW * GH);
+function thinBrick(r, cam) {
+  const x0 = Math.max(1, GOX + Math.round((cam[0] + CX0) / CELL) - 8), x1 = Math.min(GW - 2, GOX + Math.round((cam[0] + CX1) / CELL) + 8);
+  const y0 = Math.max(1, GOY + Math.round((cam[1] + CY0) / CELL) - 8), y1 = Math.min(GH - 2, GOY + Math.round((cam[1] + CY1) / CELL) + 8);
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1;) {
+      const i = gidx(x, y);
+      THIN[i] = 0;
+      if (r.grid[i] !== BRICK) { RUNH[i] = 0; x++; continue; }
+      let e = x;
+      while (e <= x1 && r.grid[gidx(e, y)] === BRICK) e++;
+      const len = e > x1 ? 99 : e - x; // the band runs out of the window: assume it is thick
+      for (let q = x; q < e; q++) RUNH[gidx(q, y)] = len;
+      x = e;
+    }
+  }
+  for (let x = x0; x <= x1; x++) {
+    for (let y = y0; y <= y1; y++) {
+      if (r.grid[gidx(x, y)] !== BRICK) { RUNV[gidx(x, y)] = 0; continue; }
+      let e = y;
+      while (e <= y1 && r.grid[gidx(x, e)] === BRICK) e++;
+      const len = e > y1 ? 99 : e - y;
+      for (let q = y; q < e; q++) RUNV[gidx(x, q)] = len;
+    }
+  }
+  for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+    const i = gidx(x, y);
+    if (r.grid[i] === BRICK && Math.min(RUNH[i], RUNV[i]) <= 3) THIN[i] = 1;
+  }
 }
 
 const PREV = new Int32Array(GW * GH).fill(-2);
@@ -482,6 +523,7 @@ function bfs(r, start, goal, cap = 500000) {
 function passable(r, gx, gy) {
   if (gx < 0 || gx >= GW || gy < 0 || gy >= GH) return false;
   if (walkable(r, gx, gy)) return true;
+  if (THIN[gidx(gx, gy)]) return true; // a thin "brick" band is probed by stepping into it
   if (r.grid[gidx(gx, gy)] !== UNKNOWN) return false;
   for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (walkable(r, gx + dx, gy + dy)) return true;
   return false;
@@ -954,6 +996,22 @@ function selftest() {
     ok(bfs(r4, [790, 500], [830, 500]), 'the seam-cut corridor is still not routable');
     ok(r4.grid[gidx(847, 502)] === VOID, 'the cleanup erased a real pit');
     ok(!bfs(r4, [790, 500], [847, 502]), 'the walker paths through the middle of a real pit');
+  }
+  {
+    // walk34 reported "no frontier" in a room the colour shots show continuing one band away: the
+    // dark plateau floor had been painted VOID and its EDGES BRICK, and bodyFit refuses anything
+    // within 3 cells of brick, so a 2-cell band sealed my whole reachable area. A thin brick band
+    // must be steppable-into (a failed step then makes the wall real); a thick one must stay solid.
+    const r4b = { grid: new Uint8Array(GW * GH), meta: { cam: [0, 0], trail: [] } };
+    for (let y = 480; y <= 520; y++) for (let x = 780; x <= 880; x++) r4b.grid[gidx(x, y)] = FLOOR;
+    for (let y = 460; y <= 540; y++) for (let x = 810; x <= 811; x++) r4b.grid[gidx(x, y)] = BRICK; // 2 cells thick, full height
+    for (let y = 460; y <= 540; y++) for (let x = 850; x <= 855; x++) r4b.grid[gidx(x, y)] = BRICK; // 6 cells thick, full height
+    const camx = 2 * (830 - GOX) - (CX0 + CX1) / 2, camy = 2 * (500 - GOY) - (CY0 + CY1) / 2;
+    thinBrick(r4b, [camx, camy]);
+    ok(THIN[gidx(810, 500)] === 1, 'a 2-cell brick band was not treated as probeable');
+    ok(THIN[gidx(852, 500)] === 0, 'a 6-cell brick wall was treated as probeable');
+    ok(bfs(r4b, [795, 500], [820, 500]), 'bfs still refused to cross the thin band');
+    ok(!bfs(r4b, [795, 500], [870, 500]), 'bfs now walks through a real raised wall');
   }
   {
     // Frontier cells hug walls. The exact cell fails my collision box, so requiring bfs to
