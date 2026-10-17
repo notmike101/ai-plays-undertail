@@ -31,6 +31,8 @@ switch (cmd) {
   case 'seq': out = await req({ cmd: 'seq', steps: JSON.parse(arg[1]) }); break;
   case 'diff': out = await req({ cmd: 'diff', a: arg[1], b: arg[2] }); break;
   case 'watch': out = await req({ cmd: 'watch', frames: Number(arg[1] || 4), ms: Number(arg[2] || 1000), prefix: arg[3] || 'w' }); break;
+  case 'scan': out = await req({ cmd: 'scan' }); break;
+  case 'dodge': out = await req({ cmd: 'dodge', seconds: Number(arg[1] || 8) }); break;
   case 'page': out = await req({ cmd: 'page', pages: Number(arg[1] || 1), key: arg[2] === 'none' ? false : arg[2] }); break;
   case 'probe': out = await req({ cmd: 'probe', keys: String(arg[1] || '').split(','), ms: Number(arg[2] || 500), hold: arg[3] === undefined ? undefined : Number(arg[3]) }); break;
   case 'wait': await sleep(Number(arg[1] || 100)); out = { ok: true }; break;

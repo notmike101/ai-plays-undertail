@@ -1,6 +1,5 @@
-Add diff/watch/probe/page observation tools and foreground fix
+Add pixel scan and reflex dodge controller; battle box detection
 
-- bridge: pixel diff command, attach-thread foreground focus, auto-focus before key
-- harness: watch (timed change detection), probe (per-key response map), page (capture until text stops typing)
-- play.mjs: diff, watch, probe, page subcommands
-- GAMEPLAY.md: flower encounter, SOUL/LV/HP lesson, two mistake postmortems
+- bridge scan: finds the battle box outline (thin border, dark interior, side walls), the red SOUL centroid, and compact white bullet blobs; ignores speech-bubble text
+- harness dodge: safe-spot steering with pellet velocity prediction, holds arrow keys
+- play.mjs: scan, dodge

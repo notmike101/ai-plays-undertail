@@ -75,6 +75,63 @@ async function exec(msg) {
     }
     case 'diff': return bridgeT('diff ' + resolve(msg.a) + ' ' + resolve(msg.b), 20000);
     case 'key': return bridgeT(keyline(msg));
+    case 'scan': return bridgeT('scan');
+    case 'dodge': {
+      // reflex aid: reads only visible pixels, sends ordinary arrow-key holds.
+      // picks the box position that maximises distance from predicted pellets.
+      const secs = msg.seconds || 8;
+      let heldX = null, heldY = null, iters = 0, bulletFrames = 0, closest = 1e9;
+      let last = [];
+      const setAxis = async (axis, dir) => {
+        const cur = axis === 'x' ? heldX : heldY;
+        if (cur === dir) return;
+        if (cur) await bridgeT(`key ${cur} up 0`);
+        if (dir) await bridgeT(`key ${dir} down 0`);
+        if (axis === 'x') heldX = dir; else heldY = dir;
+      };
+      const end = Date.now() + secs * 1000;
+      while (Date.now() < end) {
+        const s = await bridgeT('scan');
+        if (!s.ok || s.soul[2] === 0) { await sleep(50); continue; }
+        const [sx, sy] = s.soul;
+        const [x0, y0, x1, y1] = s.inner;
+        iters++;
+        if (s.bullets.length) bulletFrames++;
+        const cur = s.bullets.map((b) => [b[0], b[1]]);
+        const pred = cur.map(([bx, by]) => {
+          let bestD = 1e9, src = null;
+          for (const p of last) {
+            const d = Math.hypot(bx - p[0], by - p[1]);
+            if (d < bestD) { bestD = d; src = p; }
+          }
+          if (!src || bestD > 24) return [bx, by];
+          return [bx + (bx - src[0]) * 1.6, by + (by - src[1]) * 1.6];
+        });
+        last = cur;
+        let bx = (x0 + x1) / 2, by = (y0 + y1) / 2, bestScore = -1e9;
+        for (let cy = y0 + 6; cy <= y1 - 6; cy += 10) {
+          for (let cx = x0 + 6; cx <= x1 - 6; cx += 10) {
+            let m = 1e9;
+            for (const [px, py] of pred) {
+              const d = Math.hypot(cx - px, cy - py);
+              if (d < m) m = d;
+            }
+            const score = (m === 1e9 ? 9999 : Math.min(m, 120)) - Math.hypot(cx - sx, cy - sy) * 0.2;
+            if (score > bestScore) { bestScore = score; bx = cx; by = cy; }
+          }
+        }
+        for (const [px, py] of cur) {
+          const g = Math.hypot(px - sx, py - sy);
+          if (g < closest) closest = g;
+        }
+        const dx = bx - sx, dy = by - sy;
+        await setAxis('x', Math.abs(dx) > 5 ? (dx > 0 ? 'right' : 'left') : null);
+        await setAxis('y', Math.abs(dy) > 5 ? (dy > 0 ? 'down' : 'up') : null);
+        await sleep(20);
+      }
+      await setAxis('x', null); await setAxis('y', null);
+      return { ok: true, iters, bulletFrames, closestPx: closest === 1e9 ? null : Math.round(closest) };
+    }
     case 'seq': {
       const out = [];
       for (const step of msg.steps) {

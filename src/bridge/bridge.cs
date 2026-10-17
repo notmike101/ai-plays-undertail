@@ -42,6 +42,42 @@ class Bridge
         uint tid = GetCurrentThreadId();
         if (fgTid != 0 && fgTid != tid) AttachThreadInput(fgTid, tid, false);
     }
+    static bool IsWhite(int p) { int r = (p >> 16) & 255, g = (p >> 8) & 255, b = p & 255; return r > 180 && g > 180 && b > 180; }
+    static bool IsRed(int p) { int r = (p >> 16) & 255, g = (p >> 8) & 255, b = p & 255; return r > 140 && g < 110 && b < 110; }
+    static bool ThinWhite(int[] px, int w, int hh, int x, int y)
+    {
+        if (x < 0 || x >= w) return false;
+        int t = 0;
+        for (int k = 0; k < 10 && y + k < hh; k++) if (IsWhite(px[(y + k) * w + x])) t++; else break;
+        return t <= 5;
+    }
+    static bool RowAll(int[] px, int w, int y, int x0, int x1)
+    {
+        int hit = 0, n = 0;
+        for (int x = x0; x <= x1; x++) { n++; if (IsWhite(px[y * w + x])) hit++; }
+        return n > 0 && hit >= (n * 95) / 100;
+    }
+    static bool ColFrac(int[] px, int w, int x, int y0, int y1)
+    {
+        int hit = 0, n = 0;
+        for (int y = y0; y <= y1; y++) { n++; if (IsWhite(px[y * w + x])) hit++; }
+        return n > 0 && hit >= (n * 55) / 100;
+    }
+    // the battle box is a thin outline with a dark inside and vertical side walls;
+    // speech bubbles are filled, so an all-white interior rejects them
+    static int FindBottom(int[] px, int w, int hh, int y, int x0, int x1)
+    {
+        for (int yy = y + 60; yy <= y + 420 && yy < hh - 1; yy++)
+        {
+            if (!RowAll(px, w, yy, x0, x1)) continue;
+            if (RowAll(px, w, yy + 3, x0, x1)) continue;
+            int midy = (y + yy) / 2, cnt = 0, white = 0;
+            for (int x = x0 + 8; x <= x1 - 8; x++) { cnt++; if (IsWhite(px[midy * w + x])) white++; }
+            if (cnt <= 0 || white > (cnt * 12) / 100) continue;
+            if (ColFrac(px, w, x0, y, yy) && ColFrac(px, w, x1, y, yy)) return yy;
+        }
+        return -1;
+    }
 
     delegate bool EnumProc(IntPtr h, IntPtr l);
 
@@ -263,6 +299,76 @@ class Bridge
                         Console.WriteLine("{\"ok\":true,\"changed\":" + changed + ",\"pixels\":" + ((long)w * hh) +
                             ",\"sumdiff\":" + sumabs + ",\"bbox\":[" + minx + "," + miny + "," + maxx + "," + maxy + "]}");
                         a.Dispose(); b.Dispose();
+                        break;
+                    }
+                    case "scan":
+                    {
+                        IntPtr h = FindWindow();
+                        if (h == IntPtr.Zero) { Console.WriteLine("{\"ok\":false,\"err\":\"no window\"}"); break; }
+                        Bitmap bmp = Grab(h, false);
+                        if (bmp == null) { Console.WriteLine("{\"ok\":false,\"err\":\"grab failed\"}"); break; }
+                        int w = bmp.Width, hh = bmp.Height;
+                        BitmapData bd = bmp.LockBits(new Rectangle(0, 0, w, hh), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+                        int[] px = new int[w * hh];
+                        Marshal.Copy(bd.Scan0, px, 0, px.Length);
+                        bmp.UnlockBits(bd);
+                        bmp.Dispose();
+                        int yTop = 45;
+                        int top = -1, bot = -1, bx0 = -1, bx1 = -1;
+                        for (int y = yTop; y < hh && bot < 0; y++)
+                        {
+                            int run = 0, start = 0;
+                            for (int x = 0; x <= w; x++)
+                            {
+                                if (x < w && IsWhite(px[y * w + x])) { if (run == 0) start = x; run++; }
+                                else
+                                {
+                                    if (run >= 60 && ThinWhite(px, w, hh, start + run / 2, y))
+                                    {
+                                        int ey = FindBottom(px, w, hh, y, start, start + run - 1);
+                                        if (ey > 0) { top = y; bot = ey; bx0 = start; bx1 = start + run - 1; break; }
+                                    }
+                                    run = 0;
+                                }
+                            }
+                        }
+                        int ix0 = bx0 < 0 ? 0 : bx0 + 6, ix1 = bx1 < 0 ? w - 1 : bx1 - 6;
+                        int iy0 = top < 0 ? yTop : top + 6, iy1 = bot < 0 ? hh - 1 : bot - 6;
+                        int rsx = 0, rsy = 0, rn = 0;
+                        for (int y = iy0; y <= iy1; y++)
+                            for (int x = ix0; x <= ix1; x++)
+                                if (IsRed(px[y * w + x])) { rsx += x; rsy += y; rn++; }
+                        var comps = new List<string>();
+                        byte[] seen = new byte[w * hh];
+                        int[] stack = new int[w * hh];
+                        for (int y = iy0; y <= iy1; y++)
+                            for (int x = ix0; x <= ix1; x++)
+                            {
+                                int idx = y * w + x;
+                                if (seen[idx] != 0 || !IsWhite(px[idx])) continue;
+                                int sp = 0; stack[sp++] = idx;
+                                seen[idx] = 1;
+                                int n = 0, sx = 0, sy = 0, minx = x, maxx = x, miny = y, maxy = y;
+                                while (sp > 0)
+                                {
+                                    int c = stack[--sp];
+                                    int cx = c % w, cy = c / w;
+                                    n++; sx += cx; sy += cy;
+                                    if (cx < minx) minx = cx; if (cx > maxx) maxx = cx;
+                                    if (cy < miny) miny = cy; if (cy > maxy) maxy = cy;
+                                    if (cx > ix0 && seen[c - 1] == 0 && IsWhite(px[c - 1])) { seen[c - 1] = 1; stack[sp++] = c - 1; }
+                                    if (cx < ix1 && seen[c + 1] == 0 && IsWhite(px[c + 1])) { seen[c + 1] = 1; stack[sp++] = c + 1; }
+                                    if (cy > iy0 && seen[c - w] == 0 && IsWhite(px[c - w])) { seen[c - w] = 1; stack[sp++] = c - w; }
+                                    if (cy < iy1 && seen[c + w] == 0 && IsWhite(px[c + w])) { seen[c + w] = 1; stack[sp++] = c + w; }
+                                }
+                        int bw = maxx - minx + 1, bh = maxy - miny + 1;
+                        if (n >= 4 && bw <= 40 && bh <= 40 && n >= (bw * bh) / 3 && comps.Count < 80)
+                            comps.Add("[" + (sx / n) + "," + (sy / n) + "," + n + "," + bw + "," + bh + "]");
+                            }
+                        Console.WriteLine("{\"ok\":true,\"box\":[" + bx0 + "," + top + "," + bx1 + "," + bot +
+                            "],\"inner\":[" + ix0 + "," + iy0 + "," + ix1 + "," + iy1 +
+                            "],\"soul\":[" + (rn > 0 ? rsx / rn : -1) + "," + (rn > 0 ? rsy / rn : -1) + "," + rn +
+                            "],\"bullets\":[" + string.Join(",", comps) + "]}");
                         break;
                     }
                     case "key":
