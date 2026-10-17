@@ -67,11 +67,12 @@ scan | box <out.bin> | mem <ascii|%20|hex:BB..> [maxhits] | memr <hexaddr> <len>
 - The game **pauses when its window loses focus**: the frame stops changing
   entirely (diff = 0). `press enter` resumes it. A static frame plus "keys do
   nothing" usually means paused, or a text box is open (a box blocks movement).
-- Movement is ~0.3 px per ms of held key; the camera follows the player, so the
-  player's *screen* position is nearly constant mid-room and only changes at room
-  edges. Measure travel by whether the picture changed, not by my screen position:
-  measured 3k changed px for a key held into a wall (my own walk animation), 77k px for
-  real walking, 1.5k px standing still, so `move.mjs` uses a 12k threshold.
+- Movement is 0.10 capture px per ms of held key (re-measured; this file used to say 0.3, then 0.18 - see
+  the slam section for the measurement and why the old numbers were wrong). The camera follows the player,
+  so the player's *screen* position is nearly constant mid-room and only changes at room edges. Measure
+  travel by whether the picture changed, not by my screen position: measured 3k changed px for a key held
+  into a wall (my own walk animation), 77k px for real walking, 1.5k px standing still, so `move.mjs` uses
+  a 12k threshold.
 
 ## Restart recipe
 
@@ -99,10 +100,11 @@ node src/harness.mjs                                 # sidecar (ws on 127.0.0.1:
   the end of every row and wrapped into the next one, which smeared the map and offset it 133
   cells east of my real position; that one constant caused the days of "walking in circles".
   `selftest` now asserts the window fits the frame and excludes the title bar.
-- Consecutive captures are matched by a pixel-offset search restricted to +-12 px around the
-  shift the walker commanded (`expected = 0.18 px per ms of held key`). The winning offset is
-  the camera displacement, so `world = camera + my on-screen anchor` and the collision point is
-  `anchor.y + 13` (the feet, not the hair).
+- Consecutive captures are matched by a pixel-offset search along the held axis from 0 (camera clamped)
+  to the commanded shift plus slack (`expected = 0.10 px per ms of held key`), and candidates that imply
+  more travel than that hold could produce are dropped. The winning offset is the camera displacement, so
+  `world = camera + my on-screen anchor` and the collision point is `anchor.y + 13` (the feet, not the
+  hair).
 - Anti-aliasing: the Ruins brick pattern repeats every ~32 px, so the search window is kept
   smaller than that period instead of trusting a global best match. Tie-breaks toward the
   commanded shift apply only inside `best + 1.5` absolute cost; outside that band the strict
@@ -165,12 +167,17 @@ node src/harness.mjs                                 # sidecar (ws on 127.0.0.1:
   the grid), which also folded two real rooms into one grid. `align` therefore takes `sm` (my
   anchor's screen movement) and drops any candidate offset that would imply I travelled further
   than the speed model allows for that hold; the held axis is searched from 0 (camera clamped)
-  to the commanded shift plus slack. Speed re-measured from the frame: a wall vine patch slid
-  588 -> 264 px over 1800 ms of held key = 0.183 px per ms, matching `PXMS = 0.18`.
-- Navigation: BFS on the grid, re-planned every step, one 90-150 ms key hold per step
-  (~15-27 px). A byte-identical frame after a key hold means the game paused when its window
-  lost focus, so the step pulls the window to the foreground and presses again before the
-  zero-move is believed as a wall.
+  to the commanded shift plus slack. Speed re-measured twice on the current build and both agree on
+  0.10 px per ms: `motion.mjs` over the
+  leaf-square border (a non-repeating ROI) gave 90 px for a 900 ms hold and 36 px for 400 ms, and slam's
+  own per-step world deltas for a 900 ms hold ran 66-108 px. The earlier 0.183 figure (a vine patch
+  "slid 588 -> 264 px over 1800 ms") does not reproduce and most likely measured a room-transition
+  camera scroll, not a walk. Getting this wrong is not cosmetic: align ties near-equal offsets to the
+  commanded shift, so an 80 % over-prediction stamps ~60 px of travel per flat-floor step and stretches
+  the whole map. A 1500 ms hold that moved only 84 px was a wall, not slow walking.
+- Navigation: BFS on the grid, re-planned every step, one 90-150 ms key hold per step (~9-15 px at the
+  measured 0.10 px/ms). A byte-identical frame after a key hold means the game paused when its window lost
+  focus, so the step calls `refocus()` and presses again before the zero-move is believed as a wall.
   A byte-identical frame is not the only false zero: the game can be talking to me, which freezes
   movement, and `clearBox` has to see that before the walk paints a wall that is not there. See the
   next bullets for how the box is read and dismissed.
@@ -235,3 +242,28 @@ node src/harness.mjs                                 # sidecar (ws on 127.0.0.1:
   object's real motion is the difference between the two offsets, which is the only way I have to tell a
   scrolled camera from a moved sprite. It reuses slam.mjs's torn-grab test after my own version - sampling
   four pixels per row - declared every healthy frame smeared.
+- `motion.mjs` had a positional bug that hid it: `match x0 y0 x1 y1 <maxshift> <cmd...>` left the shift
+  bound in the command list, so it ran `play.mjs 40 hold ...` ("unknown cmd: 40") and died before frame B
+  was grabbed. The bound is now optional and recognised by shape. This is why the push/NPC measurements
+  the handoff told me to run had never actually produced a number.
+- Foreground is part of the input path, and its loss looks like geography. SendInput only reaches the
+  FOREGROUND window; Task Manager held it on this machine, bridge's `AttachThreadInput +
+  SetForegroundWindow` pull was refused against it, every key was eaten and the frames came back
+  byte-identical. A mapper that believes "0 px of movement" would have recorded a WALL there.
+  `slam.mjs` now calls `refocus()`: bridge's `focus` first, then `tools/refocus.ps1`, which uses the
+  alt-tab primitive (`SwitchToThisWindow`), clears the foreground-lock timeout, and as a last resort
+  minimizes the blocking window - never one whose title contains OBS.
+- `slam nudge <dir> [ms]` is the walkability probe: one verified `step()` reported as a distance, so a
+  "can I walk here" test stays inside the mapper (paint + footfalls follow it) instead of hand-driving,
+  which invalidates the grid.
+- `slam.mjs` is import-safe (`pathToFileURL` guard) and exports `classify`, so helper tools can reuse the
+  classifier instead of copying colour thresholds and drifting from them.
+- `writePng` also emits `roomN-fit.png`: the painted bounding box scaled to ~1100 px with my own cell
+  drawn white. A 1600x1000 canvas at 1 px per cell was unreadable, which is why every map read had gone
+  through the narrow `show` window.
+- New census helpers, both used before any classifier change: `tmp_palette.mjs [x0 y0 x1 y1]` inventories
+  the live frame's colour buckets with the count, bbox and slam's verdict for each (this is how the new
+  room's palette got named: pale plateau `(200,194,226)`, grey wall face `(95,94,119)`, dark purple
+  `(97,44,97)`, red hedge `(232,35,19)`/`(128,17,17)` - all OTH, i.e. unnameable, so they stay UNKNOWN
+  and `passable()` probes them rather than me guessing a class). `tmp_crop.mjs out.png x0 y0 x1 y1
+  [scale]` zooms a window of a frame so sprites, decals and sign glyphs are legible.
