@@ -123,12 +123,32 @@ node src/harness.mjs                                 # sidecar (ws on 127.0.0.1:
   steps a cell or two into unknown ground, so that hole sealed every room around me;
   `markFeet` therefore claims the feet row (~19x6 cells) as `PROVEN` - the ground my sprite
   stands on, which the camera cannot see. A failed step overwrites `PROVEN` with `BLOCKED`.
-- Frontier targets are UNKNOWN cells adjacent to known floor, farthest first, and a candidate
-  is only accepted if BFS has a real path longer than one key hold (~10 cells); otherwise the
-  walker overshoots the target and saws left/right over the same tile.
-- Room change = align cost above 45, or a frame more than 60 % dark (the transition fade); the
-  old room is saved, the index increments, and the new room waits up to ~12 s for the fade to
-  finish before starting a fresh grid - giving up earlier strands an unpainted room.
+- Reachability, not crow-flies distance: `flood` walks the whole grid once per planning round
+  and `pickFrontier` takes the UNKNOWN cell adjacent to known floor that is farthest by real
+  walking distance and within 3 cells (6 px) of a cell I can actually occupy. The previous list
+  scanned only +-320 cells around me, so the unexplored edge behind me - where the doorway out
+  of a room is, once I have walked away from it - was never a candidate, and a room that was a
+  third blank got declared finished. Requiring BFS to stand on the exact target was the other
+  half: frontier cells hug walls, and my collision box refuses a cell with known solid within 3
+  cells sideways, so no wall-side frontier was ever reachable.
+- Black has two meanings in this art: a real pit, and the 1-2 px seam between floor tiles.
+  `thinSeamsToFloor` runs after every paint and drops any VOID run thinner than 4 cells in
+  either direction; voids that are wide in both directions stay solid. Left in the grid the
+  seams are known solid, `bodyFit` refuses to path within 3 cells of known solid, and seams
+  6-7 cells apart therefore seal a corridor - the room becomes internally disconnected and the
+  walker cannot leave it. `slam clean` applies the pass to grids painted before the fix.
+- A room change is decided by how much of the picture is *replaced*, not by the mean pixel
+  difference: pool ripples and spike tiles inflate the mean on their own, and a camera scroll
+  bigger than the +-12 px window makes every candidate offset cost the same. `classifyShift`
+  runs a wide coarse-to-fine search first (recovering the scroll), then calls it a new room only
+  when more than 45 % of samples mismatch at the best offset. A dark frame (>60 %) is still the
+  transition fade, which is allowed up to ~12 s to finish.
+- A new room is not assumed. Each room stores the offsets of its scenery landmarks relative to
+  the cell under my feet - camera-invariant - and on a transition the new signature is matched
+  against every saved room: translations hypothesised from spread landmark pairs, hill-climbed
+  whole cells, at least 8 matches and 55 % of the smaller set required. A match reloads that
+  grid and puts me on the cell the landmarks say I landed on; only real disagreement starts a
+  new room number. That is what stops re-entering a corridor from minting room 4, 5, 6...
 - Navigation: BFS on the grid, re-planned every step, one 90-150 ms key hold per step
   (~15-27 px). A byte-identical frame after a key hold means the game paused when its window
   lost focus, so the step pulls the window to the foreground and presses again before the
