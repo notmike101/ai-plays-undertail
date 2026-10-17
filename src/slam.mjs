@@ -31,10 +31,36 @@ const WALK = new Set([FLOOR, LIGHT, WOOD, PROVEN]);
 const sh = (a) => { try { return execFileSync('node', ['src/play.mjs', ...a], { stdio: 'pipe' }); } catch { } };
 const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
+// A raw grab sometimes comes back TORN: the buffer is a vertical smear whose rows repeat, which
+// silently poisons both align() (it happily "confirms" the stale camera against smeared scenery)
+// and the sprite detector, so the recorded position drifts by hundreds of px. resync proved it
+// happened here: "no saved room matches what I can see" in a room I had just mapped, while the
+// colour shot shows the same room plainly. A healthy frame has hundreds of distinct scanlines; a
+// smear has a couple of dozen.
+function smearRows(b) {
+  const seen = new Set();
+  for (let y = 0; y < CHF; y += 3) {
+    let h = 0;
+    for (let x = 0; x < CW; x += 7) h = (h * 31 + b[(y * CW + x) * 4] + 3 * b[(y * CW + x) * 4 + 1] + 7 * b[(y * CW + x) * 4 + 2]) | 0;
+    seen.add(h);
+  }
+  return seen.size;
+}
+
 function grab() {
-  sh(['raw', 'grab', BIN]);
+  let last = 0;
+  for (let t = 0; t < 4; t++) {
+    sh(['raw', 'grab', BIN]);
+    const b = fs.readFileSync(BIN);
+    last = smearRows(b);
+    if (last >= 100) return b;
+    console.log(`the frame grab came back smeared (${last} distinct scanlines); grabbing again`);
+  }
+  sh(['raw', 'grab', BIN]); // four smears in a row: take it rather than stall, and say so
+  console.log(`every frame grab came back smeared (${last} distinct scanlines); the map may drift from here`);
   return fs.readFileSync(BIN);
 }
+
 const px = (b, x, y) => { const i = (y * CW + x) * 4; return [b[i + 2], b[i + 1], b[i]]; };
 const luma = (b, x, y) => { const i = (y * CW + x) * 4; return b[i] + b[i + 1] + b[i + 2]; };
 
@@ -606,7 +632,21 @@ function pickFrontier(r, cur, tried) {
     }
   }
   const chosen = bestNear || best; // a finishable target beats the farthest one on the map
-  if (!chosen) return null;
+  if (!chosen) {
+    // Before a room is called finished, repair the picture with the evidence my own feet carry.
+    // walk36 quit at 104 steps with "nothing further reachable is unmapped"; running the same seam
+    // and footprint passes afterwards (slam clean) found a frontier 34 cells away - the last paints
+    // had stranded me in a pocket of cells painted solid under my own body.
+    if (!r.meta.repairTried) {
+      r.meta.repairTried = 1;
+      thinSeamsToFloor(r);
+      stoodRepair(r);
+      thinBrick(r, r.meta.cam || [0, 0]);
+      console.log('the map looked finished; repairing seams and footprints and looking again');
+      return pickFrontier(r, cur, tried);
+    }
+    return null;
+  }
   const p = bfs(r, cur, chosen.t);
   if (!p || p.length <= 10) { tried.add(chosen.t[0] + ',' + chosen.t[1]); return pickFrontier(r, cur, tried); } // closer than one key hold - that is how the sawing started
   return { t: chosen.t, path: p };
@@ -1079,6 +1119,16 @@ function selftest() {
     ok(!pickFrontier(r7, [820, 520], new Set()), 'a room whose whole outline is a tested wall still wants exploring');
   }
   {
+    // A smeared grab (rows repeating) is what let align confirm a stale camera against scenery that
+    // was never in the frame: resync later found NO saved room matching a room I had just mapped.
+    const healthy = Buffer.alloc(646 * 520 * 4);
+    for (let y = 0; y < 520; y++) for (let x = 0; x < 646; x++) { const p = (y * 646 + x) * 4; healthy[p] = (x * 3 + y * 5) & 255; healthy[p + 1] = (x + y * 11) & 255; healthy[p + 2] = (x * 7) & 255; }
+    const smear = Buffer.alloc(646 * 520 * 4);
+    for (let y = 0; y < 520; y++) { const yy = y % 4; for (let x = 0; x < 646; x++) { const p = (y * 646 + x) * 4; smear[p] = (x * 3 + yy * 5) & 255; smear[p + 1] = (x + yy * 11) & 255; smear[p + 2] = (x * 7) & 255; } }
+    ok(smearRows(healthy) >= 100, `a varied frame was called smeared (${smearRows(healthy)})`);
+    ok(smearRows(smear) < 100, 'a repeating-scanline smear was accepted as a frame');
+  }
+  {
     // A footstep outranks a colour. This room draws its walkable floor with a flat brick-and-seam
     // texture, so the colour vote stamped BRICK and VOID over ground I physically stood on (185 of
     // 828 footfalls) and left 2 cells routable from my own position. The trail repairs that, and a
@@ -1161,6 +1211,7 @@ function walk(mode, steps) {
   const pressTries = new Map(); // black gaps get escalating holds, not wall marks
   let pressMs = 0, pressCount = 0;
   r.veto = new Set(r.meta.veto || []);
+  r.meta.repairTried = 0; // one repair pass per walk, at the moment the map looks finished
   let prev = null; // the route I am committing to, so two equal detours cannot alternate
   for (let i = 0; i < steps; i++) {
     const cur = cellOf(...r.meta.world);
