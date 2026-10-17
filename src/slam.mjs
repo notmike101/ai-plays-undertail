@@ -1011,9 +1011,20 @@ function walk(mode, steps) {
   let blocked = 0, stuckEvents = 0, dialogEvents = 0;
   const strikes = new Map();
   r.veto = new Set(r.meta.veto || []);
+  let prev = null; // the route I am committing to, so two equal detours cannot alternate
   for (let i = 0; i < steps; i++) {
     const cur = cellOf(...r.meta.world);
-    let path = bfs(r, cur, [tgx, tgy]);
+    // Re-planning from nothing every step lets two almost-equal routes around one obstacle take
+    // turns: walk25 shuffled left/right for 780 steps because on the east side of a pillar the
+    // west-going route was 3 cells shorter, and on the west side the east-going one was. Stay on
+    // the route already being walked unless it stops being walkable or I have drifted off it.
+    const pkey = tgx + ',' + tgy;
+    let path = null;
+    if (prev && prev.key === pkey && prev.path.length > 1 && Math.abs(cur[0] - prev.cell[0]) + Math.abs(cur[1] - prev.cell[1]) <= 12 && passable(r, prev.path[1][0], prev.path[1][1]) && bodyFit(r, prev.path[1][0], prev.path[1][1])) {
+      path = [cur, ...prev.path.slice(1)];
+      // I cover ~7 cells per step, so drop the waypoints I have already walked past
+      while (path.length > 1 && Math.abs(cur[0] - path[1][0]) + Math.abs(cur[1] - path[1][1]) <= 10) path.shift();
+    } else path = bfs(r, cur, [tgx, tgy]);
     // A target stops being a target when fresh paint reclassifies it: the frontier was chosen
     // while that cell was UNKNOWN, and as I approached, the picture resolved it into brick. Nine
     // steps were burned walking toward a wall that grew under me before the planner noticed.
@@ -1191,6 +1202,7 @@ function walk(mode, steps) {
       if (!p) { console.log('no other frontier is reachable from here'); break; }
       tgx = p.t[0]; tgy = p.t[1];
     }
+    prev = { key: pkey, path, cell: cur };
   }
   saveRoom(r);
   console.log(`saved ${statePath()}.bin, world ${r.meta.world.map(Math.round)}`);
