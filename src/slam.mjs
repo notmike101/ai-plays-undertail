@@ -336,6 +336,7 @@ function paint(r, b, cam) {
   thinSeamsToFloor(r);
   stoodRepair(r);
   thinBrick(r, cam);
+  thinDark(r, cam);
 }
 
 // The floor tiles are drawn with 1-2 px black seams, and black is exactly what VOID means
@@ -488,10 +489,16 @@ function legalAim(r, cur, dir) {
 // continuing one band away. Thin bands are made pressable: BFS may plan through them, my body then
 // either moves (the cell was floor, footprints prove it) or fails (markBlocked makes the wall real).
 // Thick brick masses keep the "raised wall" verdict the mortar rule earned.
-const THIN = new Uint8Array(GW * GH);
-function thinBrick(r, cam) {
+// The band passes run over the painted window plus a margin, never the whole 1600x1000 canvas.
+function winOf(cam) {
   const x0 = Math.max(1, GOX + Math.round((cam[0] + CX0) / CELL) - 8), x1 = Math.min(GW - 2, GOX + Math.round((cam[0] + CX1) / CELL) + 8);
   const y0 = Math.max(1, GOY + Math.round((cam[1] + CY0) / CELL) - 8), y1 = Math.min(GH - 2, GOY + Math.round((cam[1] + CY1) / CELL) + 8);
+  return [x0, x1, y0, y1];
+}
+
+const THIN = new Uint8Array(GW * GH);
+function thinBrick(r, cam) {
+  const [x0, x1, y0, y1] = winOf(cam);
   for (let y = y0; y <= y1; y++) {
     for (let x = x0; x <= x1;) {
       const i = gidx(x, y);
@@ -516,6 +523,31 @@ function thinBrick(r, cam) {
   for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
     const i = gidx(x, y);
     if (r.grid[i] === BRICK && Math.min(RUNH[i], RUNV[i]) <= 3) THIN[i] = 1;
+  }
+}
+
+// A black band that ENDS inside the window is a shadowed doorway, not the outside: the room
+// exterior and the letterbox run past the sampled window, while the gate between two rooms is
+// drawn black and is only 10-25 cells wide. Only the frontier walker could ever step onto black
+// (the short-path press), so `walk "to"` answered "no path" across a gate it had just crossed
+// twice. A bounded band therefore gets the thin-brick treatment: BFS may plan through it, my body
+// either crosses it (footprints then prove floor) or fails, and the three-strike veto takes the
+// edge off the graph.
+// Measured on the live grid: the gate between the octagon and the corridor is a 10-cell brick
+// band (the vine column) beside a 28-cell black band, while the room exterior runs for hundreds.
+const DARK_MAX = 40;
+function thinDark(r, cam) {
+  const [x0, x1, y0, y1] = winOf(cam);
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1;) {
+      if (r.grid[gidx(x, y)] !== VOID) { x++; continue; }
+      const lim = Math.min(x + DARK_MAX + 1, GW - 1);
+      let e = x;
+      while (e < lim && r.grid[gidx(e, y)] === VOID) e++;
+      if (e >= lim || r.grid[gidx(e, y)] === VOID || r.grid[gidx(x - 1, y)] === VOID) { x = e; continue; } // unbounded black
+      for (let q = x; q < e; q++) THIN[gidx(q, y)] = 1;
+      x = e;
+    }
   }
 }
 
@@ -645,6 +677,7 @@ function pickFrontier(r, cur, tried) {
       thinSeamsToFloor(r);
       stoodRepair(r);
       thinBrick(r, r.meta.cam || [0, 0]);
+      thinDark(r, r.meta.cam || [0, 0]);
       console.log('the map looked finished; repairing seams and footprints and looking again');
       return pickFrontier(r, cur, tried);
     }
@@ -1071,6 +1104,26 @@ function selftest() {
     ok(THIN[gidx(852, 500)] === 0, 'a 6-cell brick wall was treated as probeable');
     ok(bfs(r4b, [795, 500], [820, 500]), 'bfs still refused to cross the thin band');
     ok(!bfs(r4b, [795, 500], [870, 500]), 'bfs now walks through a real raised wall');
+  }
+  {
+    // `walk "to"` answered "no path" across a gate the frontier walk crossed twice without
+    // trouble: the doorway between two rooms is drawn BLACK, bfs cannot stand on black, and only
+    // the frontier press ever stepped onto it. A bounded black band is a shadowed gate and must be
+    // probeable; black that runs past the window (the room exterior, the letterbox) must not be.
+    const r9 = { grid: new Uint8Array(GW * GH), meta: { cam: [0, 0], trail: [] } };
+    for (let y = 480; y <= 520; y++) for (let x = 780; x <= 960; x++) r9.grid[gidx(x, y)] = FLOOR;
+    for (let y = 460; y <= 540; y++) for (let x = 850; x <= 869; x++) r9.grid[gidx(x, y)] = VOID; // a 20-cell gate
+    const cx9 = 2 * (860 - GOX) - (CX0 + CX1) / 2, cy9 = 2 * (500 - GOY) - (CY0 + CY1) / 2;
+    thinBrick(r9, [cx9, cy9]); // production order: the brick pass rebuilds THIN in the window
+    thinDark(r9, [cx9, cy9]);
+    ok(THIN[gidx(855, 500)] === 1, 'a 20-cell black gate was not made probeable');
+    ok(bfs(r9, [800, 500], [900, 500]), 'bfs still refused to cross a black gate the game walks through');
+    for (let y = 460; y <= 540; y++) for (let x = 850; x <= 869; x++) r9.grid[gidx(x, y)] = FLOOR;
+    for (let y = 460; y <= 540; y++) for (let x = 850; x <= 949; x++) r9.grid[gidx(x, y)] = VOID; // 100 cells: the outside
+    thinBrick(r9, [cx9, cy9]);
+    thinDark(r9, [cx9, cy9]);
+    ok(THIN[gidx(860, 500)] === 0, 'a 100-cell black region was made probeable');
+    ok(!bfs(r9, [800, 500], [930, 500]), 'bfs crosses a 100-cell black region');
   }
   {
     // The walker aims 8 cells down the route, so it can point at the very move the route exists to
@@ -1570,6 +1623,8 @@ if (cmd === 'init') {
 } else if (cmd === 'clean') {
   const r = loadRoom();
   thinSeamsToFloor(r);
+  thinBrick(r, r.meta.cam || [0, 0]);
+  thinDark(r, r.meta.cam || [0, 0]);
   const before = r.grid.reduce((a, v) => a + (v === BRICK || v === VOID ? 1 : 0), 0);
   stoodRepair(r);
   const after = r.grid.reduce((a, v) => a + (v === BRICK || v === VOID ? 1 : 0), 0);
