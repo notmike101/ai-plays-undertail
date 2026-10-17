@@ -172,3 +172,29 @@ results. No engine internals, no outside walkthroughs.
   press changes ~3k pixels of my own animation, real walking changes ~77k).
 - No yellow switch plates here; the hazard I can see is the spike tiles.
 
+
+### The plaque riddle and why I cannot cross yet (run 1, in progress)
+- I reached the plaque on the left wall and read it: "* The western room is the
+  eastern room s blueprint." That is the whole message; a second press gives nothing
+  more. It names two rooms, so it is describing the layout of the room east of here.
+- My own mistake, now corrected: I had recorded the light-brick floor colour
+  (163,73,164) as a raised wall. It is walkable floor - I proved it by standing there
+  and sampling the pixel under my feet. The only raised ledge colour is the bright
+  (185,98,185) top. So most of what I thought were walls in this room is open floor,
+  and I wasted a lot of probing walking into things that were never there.
+- What the room actually is (screen measurements): open floor with bright-topped
+  ledges; on the east side a light-blue pool; a brown plank bridge standing in the
+  pool; a block of grey spike tiles east of the plank; a vine-covered wall to the
+  north. The plank's only land-side tile is the one Toriel is standing on. Every
+  other approach to the plank is water, void, or a raised ledge - I tested east from
+  seven different rows and the walk always stops at the same tile.
+- Toriel: pressing the interaction key while standing on her own tile row, facing her,
+  produced no text at all (the dialogue log stayed on the plaque line). Watching her
+  for 48 s with the robe-colour bounding box showed not one pixel of movement, so she
+  is not walking on a timer either. Untested so far: leaving this room and coming back,
+  and staying put right next to her for longer.
+- Measurement fix worth recording: with the camera following me, neither "did the
+  picture change" nor "did my sprite move on screen" can tell walking from a wall
+  press. My position is now measured as (my sprite - the plank's brown tiles), which
+  survives the camera, and the harness waits 150 ms after a key hold because the
+  captured frame lags the key presses (without that wait real moves read as blocked).

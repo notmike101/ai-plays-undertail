@@ -58,6 +58,8 @@ for (let i = 0; i < steps; i++) {
     const d = scrolled ? DELTA[face] : [dx, dy];
     pos = [pos[0] + d[0], pos[1] + d[1]];
     prev = B;
+    const big = changed(A.buf, B.buf);
+    if (big > 150000) console.log(`step ${i}: screen replaced (${big} px), likely a room change; tracker restarts`);
     const fresh = !seen.has(key(pos));
     seen.add(key(pos));
     console.log(`step ${i}: ${face} -> ${pos.map(Math.round).join(',')} ${fresh ? '*' : ' '} visited=${seen.size}`);

@@ -44,14 +44,22 @@
   anyway.", and the fight closed with "* YOU WON !" / 0 EXP / 0 gold, HP untouched.
   Which action actually closed it is not recorded on screen - noted as a mistake in the
   journal rather than guessed at.
-- Now in the plank/water/spike room: a brown plank bridge over water with two blocks of
-  spike tiles, a vine wall, an unread wall plaque, and Toriel standing on (and blocking)
-  the near end of the plank.
+- Plank/water/spike room: read the wall plaque there - "* The western room is the
+  eastern room s blueprint." - and the frogger path (three dashes, four dashes) got me
+  onto the brown plank, where Toriel blocks the near end and no dialogue is offered.
+  I did not cross.
+- Wandering east/south from there opened a neighbouring room: brick ledges, two vine
+  walls, black pits, and no water, plank or Toriel in view. My screen-coordinate
+  bookkeeping went wrong there - the camera clamps at a room's edges, so "no movement"
+  sometimes means a clamp, not a wall - so I re-measured with pixel probes instead.
+- The screen-only coverage walker (`src/explore.mjs`) traces where I have been by
+  comparing my on-screen shift against how much the scenery shifted; it reports blocked
+  directions and flags a full-screen replacement (a likely room change).
 - Full dialogue record: `logs/dialog.jsonl` (copied to `evidence/run1/`).
 
 ## Next actions
-1. Solve the current room: reach and read the wall plaque, find the safe line past the
-   spike tiles, and get past Toriel on the plank.
+1. Get back to Toriel's room through doorways rather than by wandering; when she blocks
+   a route, try leaving the room and coming back before assuming the route is closed.
 2. Keep reading every page: the watcher logs all of them; check
    `tail -1 logs/dialog.jsonl` after each confirm press.
 3. Save at each save point; record the room name it shows.
