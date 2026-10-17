@@ -1078,7 +1078,7 @@ function walk(mode, steps) {
   let blocked = 0, stuckEvents = 0, dialogEvents = 0;
   const strikes = new Map();
   const pressTries = new Map(); // black gaps get escalating holds, not wall marks
-  let pressMs = 0;
+  let pressMs = 0, pressCount = 0;
   r.veto = new Set(r.meta.veto || []);
   let prev = null; // the route I am committing to, so two equal detours cannot alternate
   for (let i = 0; i < steps; i++) {
@@ -1114,7 +1114,10 @@ function walk(mode, steps) {
       const pk = tgx + ',' + tgy;
       const t = (pressTries.get(pk) || 0) + 1;
       pressTries.set(pk, t);
-      pressMs = Math.min(1500, 250 * t);
+      // the counter is per WALK, not per gap cell: the frontier keeps offering neighbouring cells of
+      // the same dark region (walk33 burned 31 re-targets that way) and a per-cell counter restarts
+      // at 250 ms every time, so the long holds never actually happen.
+      pressMs = Math.min(1500, 250 * ++pressCount);
     }
     if (!path || (path.length <= 10 && !press)) {
       if (mode === 'frontier') {
