@@ -729,10 +729,11 @@ function step(r, dir, ms = 150) {
 
 function show(r) {
   const [gx, gy] = cellOf(...r.meta.world);
-  const S = 6;
-  for (let y = gy - 24; y <= gy + 24; y += S / CELL * 2) {
+  // one character per cell: the stride this used to take (6/CELL*2) shrank the view to 14x9 cells
+  // once CELL became 0.5, which hid exactly the walls and gaps it was meant to reveal.
+  for (let y = gy - 24; y <= gy + 24; y++) {
     let line = '';
-    for (let x = gx - 40; x <= gx + 40; x += S / CELL * 2) {
+    for (let x = gx - 60; x <= gx + 60; x++) {
       const v = r.grid[gidx(x, y)];
       line += (Math.abs(x - gx) <= 1 && Math.abs(y - gy) <= 1) ? '@' : (CH[v] || '?');
     }
@@ -1107,8 +1108,17 @@ function walk(mode, steps) {
       break;
     }
     const next = path[1] || path[0];
-    const dx = Math.sign(next[0] - cur[0]), dy = Math.sign(next[1] - cur[1]);
-    const dir = dx > 0 ? 'right' : dx < 0 ? 'left' : dy > 0 ? 'down' : dy < 0 ? 'up' : null;
+    // Offsets of 1-2 cells are noise at my step size (the shortest controllable hold is ~6 px =
+    // 3 cells). Treating them as a sideways command made the walker shuffle left/right forever
+    // beside a target instead of closing the 12-cell gap north of it. Ignore sub-step offsets and
+    // take the dominant axis.
+    const ax = Math.abs(next[0] - cur[0]), ay = Math.abs(next[1] - cur[1]);
+    const ddx = ax <= 2 ? 0 : Math.sign(next[0] - cur[0]);
+    const ddy = ay <= 2 ? 0 : Math.sign(next[1] - cur[1]);
+    let dir = null;
+    if (ax > ay && ddx) dir = ddx > 0 ? 'right' : 'left';
+    else if (ddy) dir = ddy > 0 ? 'down' : 'up';
+    else if (ddx) dir = ddx > 0 ? 'right' : 'left';
     if (!dir) { console.log(`step ${i}: arrived at ${cur}`); break; }
     // The hold must not overshoot what is left to walk. 90 ms is 16 px = 32 cells, while arrival
     // counts as within 3 cells (6 px): at path lengths of 28-40 cells the walker sailed past the
