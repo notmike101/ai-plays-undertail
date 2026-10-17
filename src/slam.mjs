@@ -367,6 +367,7 @@ function thinSeamsToFloor(r) {
     if (r.grid[i] === VOID && Math.min(RUNH[i], RUNV[i]) <= 3) r.grid[i] = FLOOR;
   }
 }
+
 // A footstep outranks a colour. This room draws its walkable floor with a flat brick-and-seam
 // texture, so the colour vote stamped BRICK and VOID over ground I physically stood on (185 of
 // 828 footfalls) and left 2 cells routable from my own position, inside a room I had walked
@@ -665,10 +666,12 @@ function plankGoal(r) {
   for (let s0 = 0; s0 < GW * GH; s0++) {
     if (r.grid[s0] !== WOOD || seen[s0]) continue;
     const st = [s0]; seen[s0] = 1;
-    let n = 0, near = -1, nearCell = null;
+    let n = 0, near = -1, nearCell = null, minx = GW, maxx = 0, miny = GH, maxy = 0;
     while (st.length) {
       const q = st.pop(); n++;
-      const qx = q % GW, qy = (q - qx) / GW;
+    const qx = q % GW, qy = (q - qx) / GW;
+    if (qx < minx) minx = qx; if (qx > maxx) maxx = qx;
+    if (qy < miny) miny = qy; if (qy > maxy) maxy = qy;
       const d = Math.abs(qx - mx) + Math.abs(qy - my);
       if (near < 0 || d < near) { near = d; nearCell = [qx, qy]; }
       for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
@@ -678,7 +681,10 @@ function plankGoal(r) {
         if (!seen[ni] && r.grid[ni] === WOOD) { seen[ni] = 1; st.push(ni); }
       }
     }
-    if (n > bn) { bn = n; best = nearCell; }
+    // ...but the blob has to be COMPACT. The census: 74,119 WOOD cells sit in TWO regions 829x195 and
+    // 829x234 cells - wooden floor, walkable, and not something to carry - plus one 42-cell object.
+    // A plank is a hand-sized prop, tens of cells long at most, so floor-sized regions are ineligible.
+    if (n > bn && maxx - minx <= 40 && maxy - miny <= 40) { bn = n; best = nearCell; }
   }
   return bn >= 25 ? best : null;
 }
@@ -1129,6 +1135,18 @@ function selftest() {
     for (let y = 0; y < 520; y++) { const yy = y % 4; for (let x = 0; x < 646; x++) { const p = (y * 646 + x) * 4; smear[p] = (x * 3 + yy * 5) & 255; smear[p + 1] = (x + yy * 11) & 255; smear[p + 2] = (x * 7) & 255; } }
     ok(smearRows(healthy) >= 100, `a varied frame was called smeared (${smearRows(healthy)})`);
     ok(smearRows(smear) < 100, 'a repeating-scanline smear was accepted as a frame');
+  }
+  {
+    // The census of the mapped area: 74,119 WOOD cells in TWO regions 829x195 and 829x234 cells (real
+    // wooden floor), and one 42-cell object. plankGoal must chase the object, not the floor it is on.
+    const r7 = { grid: new Uint8Array(GW * GH), meta: { cam: [0, 0], trail: [], world: [0, 0] } };
+    for (let x = 0; x < GW; x++) for (let y = 495; y <= 505; y++) r7.grid[gidx(x, y)] = WOOD; // a wooden floor region, full width
+    for (let x = 820; x <= 831; x++) for (let y = 520; y <= 524; y++) r7.grid[gidx(x, y)] = WOOD; // a plank, 12x5
+    const g7 = plankGoal(r7);
+    ok(g7 && g7[0] >= 820 && g7[0] <= 831 && g7[1] >= 520 && g7[1] <= 524, `plankGoal chased the floor region instead of the plank (${g7})`);
+    r7.grid.fill(0);
+    for (let x = 0; x < GW; x++) for (let y = 495; y <= 505; y++) r7.grid[gidx(x, y)] = WOOD;
+    ok(plankGoal(r7) === null, 'a whole grid of wooden floor still offered a plank target');
   }
   {
     // A footstep outranks a colour. This room draws its walkable floor with a flat brick-and-seam
