@@ -4,6 +4,7 @@
 // tile-class grid saved on disk, so the map survives between runs and can be path-found.
 //
 // CLI: node src/slam.mjs init | mark | show | png | walk frontier|plank|"to x y" [steps]
+import { pathToFileURL } from 'url';
 import { execFileSync } from 'child_process';
 import fs from 'fs';
 import zlib from 'zlib';
@@ -30,6 +31,22 @@ const WALK = new Set([FLOOR, LIGHT, WOOD, PROVEN]);
 
 const sh = (a) => { try { return execFileSync('node', ['src/play.mjs', ...a], { stdio: 'pipe' }); } catch { } };
 const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
+// The game only receives SendInput while it is the FOREGROUND window, and bridge's own pull
+// (AttachThreadInput + SetForegroundWindow) is refused by some windows: on this machine Task Manager
+// held the foreground, every key was eaten, frames came back byte-identical, and the mapper was about
+// to record a WALL where the true fault was "no input". Try bridge's `focus` first, then the alt-tab
+// primitive in tools/refocus.ps1 (which never touches OBS).
+function refocus() {
+  let j = null;
+  try { j = JSON.parse((sh(['focus']) || Buffer.from('')).toString()); } catch { }
+  if (j && j.foreground) return true;
+  try {
+    const out = execFileSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'tools/refocus.ps1'], { stdio: 'pipe' }).toString().trim();
+    console.log(`foreground was not the game window -> ${out}`);
+  } catch (e) { console.log('tools/refocus.ps1 failed: ' + e.message); }
+  return false;
+}
 
 // A raw grab sometimes comes back TORN: the buffer is a vertical smear whose rows repeat, which
 // silently poisons both align() (it happily "confirms" the stale camera against smeared scenery)
@@ -91,7 +108,12 @@ function classify(b, x, y) {
 // than the pattern period, which makes aliasing impossible. A near-identical frame means the
 // camera did not move at all (clamped, or I am pressed against something).
 const UNIT = { right: [1, 0], left: [-1, 0], up: [0, -1], down: [0, 1] };
-const PXMS = 0.18; // measured walking speed in capture px per ms of held key
+// Walking speed, re-measured on this build with src/motion.mjs over the leaf-square border
+// (a non-repeating ROI, so no brick-period aliasing): a 900 ms hold scrolled the scenery 90 px
+// and a 400 ms hold 36 px, i.e. 0.10 px/ms. The old 0.18 over-predicted by 80%: align's tie-break
+// aims at the commanded shift on featureless floor, so every flat-floor step was stamped ~60 px
+// too far and the map stretched. (A 1500 ms hold moved only 84 px - that was a wall, not speed.)
+const PXMS = 0.10;
 function samp(A, B, dx, dy) { // [mean luma delta, badly mismatched samples, samples]
   let s = 0, bad = 0, n = 0;
   for (let y = CY0 + 8; y < CY1 - 8; y += 6) for (let x = CX0 + 8; x < CX1 - 8; x += 6) {
@@ -856,7 +878,7 @@ function step(r, dir, ms = 150) {
   sleep(160);
   let b = grab();
   if (sameFrame(r.meta.prevBuf, b)) { // the game pauses when its window loses focus; a byte-identical frame means my key went nowhere
-    sh(['focus']);
+    refocus();
     sh(['hold', dir, String(ms)]);
     sleep(160);
     b = grab();
@@ -909,14 +931,13 @@ function show(r) {
   console.log(`room ${r.s.room} cell ${gx},${gy} world ${r.meta.world.map(Math.round)} cam ${r.meta.cam.map(Math.round)}`);
 }
 
-function writePng(r) {
-  const w = GW, h = GH;
-  const raw = Buffer.alloc(w * (h * 3 + 1));
-  const col = { 0: [20, 20, 24], 1: [120, 60, 120], 2: [200, 150, 200], 3: [0, 0, 0], 4: [70, 187, 217], 5: [190, 190, 190], 6: [167, 112, 82], 7: [40, 140, 60], 8: [255, 220, 60], 9: [90, 90, 110], 10: [60, 60, 220], 11: [95, 40, 95] };
+const MAPCOL = { 0: [20, 20, 24], 1: [120, 60, 120], 2: [200, 150, 200], 3: [0, 0, 0], 4: [70, 187, 217], 5: [190, 190, 190], 6: [167, 112, 82], 7: [40, 140, 60], 8: [255, 220, 60], 9: [90, 90, 110], 10: [60, 60, 220], 11: [95, 40, 95] };
+function encodePng(path, w, h, put) {
+  const raw = Buffer.alloc(h * (w * 3 + 1));
   for (let y = 0; y < h; y++) {
     raw[y * (w * 3 + 1)] = 0;
     for (let x = 0; x < w; x++) {
-      const c = col[r.grid[gidx(x, y)]] || col[0];
+      const c = put(x, y);
       const o = y * (w * 3 + 1) + 1 + x * 3;
       raw[o] = c[0]; raw[o + 1] = c[1]; raw[o + 2] = c[2];
     }
@@ -932,10 +953,30 @@ function writePng(r) {
   };
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 2;
-  const png = Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw, { level: 6 })), chunk('IEND', Buffer.alloc(0))]);
-  const out = `${DIR}/room${r.s.room}.png`;
-  fs.writeFileSync(out, png);
-  return out;
+  fs.writeFileSync(path, Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw, { level: 6 })), chunk('IEND', Buffer.alloc(0))]));
+  return path;
+}
+function writePng(r) {
+  const at = (x, y) => MAPCOL[r.grid[gidx(x, y)]] || MAPCOL[0];
+  const out = encodePng(`${DIR}/room${r.s.room}.png`, GW, GH, at);
+  // A 1600x1000 canvas rendered 1 px per cell is unreadable, which is why every map read so far
+  // needed the ASCII `show` window. Crop to the painted bounding box and scale it up; my own cell
+  // is drawn white so a cold reader can tell where the walk ended.
+  let x0 = GW, y0 = GH, x1 = -1, y1 = -1;
+  for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) if (r.grid[gidx(x, y)]) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  const me = cellOf(...r.meta.world);
+  if (x1 < 0) return out;
+  x0 = Math.max(0, x0 - 6); y0 = Math.max(0, y0 - 6);
+  x1 = Math.min(GW - 1, x1 + 6); y1 = Math.min(GH - 1, y1 + 6);
+  const bw = x1 - x0 + 1, bh = y1 - y0 + 1;
+  const k = Math.max(1, Math.min(8, Math.floor(1100 / Math.max(bw, bh))));
+  const fit = encodePng(`${DIR}/room${r.s.room}-fit.png`, bw * k, bh * k, (px, py) => {
+    const c = at(x0 + Math.floor(px / k), y0 + Math.floor(py / k));
+    const gx = x0 + Math.floor(px / k), gy = y0 + Math.floor(py / k);
+    if (gx === me[0] && gy === me[1]) return [255, 255, 255];
+    return c;
+  });
+  return `${out} + ${fit} (cells ${x0},${y0}-${x1},${y1} at ${k}x, white = me)`;
 }
 
 // one runnable check of the parts that were wrong in interesting ways:
@@ -983,12 +1024,48 @@ function selftest() {
       const v = x % 27 < 4 ? 200 : 120, p = (y * 646 + x) * 4;
       stripes[p] = v; stripes[p + 1] = v >> 1; stripes[p + 2] = v; stripes[p + 3] = 255;
     }
-    const rippled = Buffer.from(stripes);
-    for (let y = 200; y < 260; y++) for (let x = 120; x < 320; x++) { const p = (y * 646 + x) * 4; rippled[p] = rippled[p + 1] = rippled[p + 2] = 250; }
-    const clamped = classifyShift(stripes, rippled, 'right', 150, [27, 0]);
+    // Two honest pairs, one per verdict. The old fixture was a single UNSCROLLED pair whose stripe
+    // period (27 px) was chosen to equal one step of the old, 80%-too-fast speed model, so the
+    // tie-break's commanded shift was a zero-cost alias and the case quietly agreed with the bug.
+    // Measured physics: one 150 ms hold travels ~15 px (0.10 px/ms).
+    const patchAt = (b) => { for (let y = 200; y < 260; y++) for (let x = 120; x < 320; x++) { const p = (y * 646 + x) * 4; b[p] = b[p + 1] = b[p + 2] = 250; } return b; };
+    const patched = patchAt(Buffer.from(stripes)); // camera CLAMPED: scenery identical, patch rippled
+    const clamped = classifyShift(stripes, patched, 'right', 150, [15, 0]);
     ok(Math.abs(clamped.dx) <= 6, `a clamped camera was read as a ${clamped.dx} px scenery scroll (this stretched the map 2x)`);
-    const free = classifyShift(stripes, rippled, 'right', 150, [0, 0]);
-    ok(free.dx >= 20, `my sprite did not move, so the scenery should count as scrolled (dx ${free.dx})`);
+    const scrolled = Buffer.alloc(646 * 520 * 4); // camera FOLLOWED: 15 px of scenery scroll
+    for (let y = 0; y < 520; y++) for (let x = 0; x < 646; x++) {
+      const p = (y * 646 + x) * 4, q = (y * 646 + Math.min(645, x + 15)) * 4;
+      scrolled[p] = stripes[q]; scrolled[p + 1] = stripes[q + 1]; scrolled[p + 2] = stripes[q + 2]; scrolled[p + 3] = 255;
+    }
+    patchAt(scrolled);
+    const free = classifyShift(stripes, scrolled, 'right', 150, [0, 0]);
+    ok(free.dx >= 10, `my sprite did not move, so the scenery should count as scrolled (dx ${free.dx})`);
+  }
+  {
+    // Speed model. Measured on this build with src/motion.mjs: 900 ms hold -> 90 px of scenery
+    // shift, 400 ms -> 36 px (0.10 px/ms). PXMS used to be 0.18, i.e. an expected 162 px for a
+    // 900 ms hold. Brick and stripes repeat every ~27-32 px, so an over-predicted expectation is
+    // a ZERO-COST alias of the true shift, and the near-tie tie-break happily picks it: every
+    // flat-floor step then stamped ~70 px of travel I never made.
+    const a = Buffer.alloc(646 * 520 * 4);
+    for (let y = 0; y < 520; y++) for (let x = 0; x < 646; x++) {
+      const v = x % 27 < 4 ? 200 : 120, p = (y * 646 + x) * 4;
+      a[p] = v; a[p + 1] = v >> 1; a[p + 2] = v; a[p + 3] = 255;
+    }
+    const shifted = Buffer.alloc(646 * 520 * 4); // I walked right 90 px, camera followed
+    for (let y = 0; y < 520; y++) for (let x = 0; x + 90 < 646; x++) {
+      const p = (y * 646 + x) * 4, q = (y * 646 + x + 90) * 4;
+      shifted[p] = a[q]; shifted[p + 1] = a[q + 1]; shifted[p + 2] = a[q + 2]; shifted[p + 3] = 255;
+    }
+    const right = classifyShift(a, shifted, 'right', 900, [0, 0]);
+    ok(Math.abs(right.dx - 90) <= 6, `a 900 ms right hold must read as ~90 px, got dx ${right.dx} (PXMS ${PXMS})`);
+    const downed = Buffer.alloc(646 * 520 * 4); // I walked down 36 px (a 400 ms hold)
+    for (let y = 0; y + 36 < 520; y++) for (let x = 0; x < 646; x++) {
+      const p = (y * 646 + x) * 4, q = ((y + 36) * 646 + x) * 4;
+      downed[p] = a[q]; downed[p + 1] = a[q + 1]; downed[p + 2] = a[q + 2]; downed[p + 3] = 255;
+    }
+    const down = classifyShift(a, downed, 'down', 400, [0, 0]);
+    ok(Math.abs(down.dy - 36) <= 4, `a 400 ms down hold must read as ~36 px, got dy ${down.dy}`);
   }
   {
     // raised brick walls are the same purple as the floor; only the mortar lines tell them
@@ -1252,7 +1329,7 @@ function selftest() {
     for (let x = 100; x <= 400; x++) { const p = (200 * CW + x) * 4; decoy[p] = decoy[p + 1] = decoy[p + 2] = 255; }
     ok(boxRect(decoy) === null, 'a single pale edge was mistaken for a message box');
   }
-  console.log('selftest ok: align anti-aliasing, transition classifier, seam cleanup, bfs arrival, frontier reach and cap, blocked marking, footprint evidence, body-width lanes, room identity, paint hysteresis, message box mask');
+  console.log('selftest ok: align anti-aliasing, transition classifier, speed model, seam cleanup, bfs arrival, frontier reach and cap, blocked marking, footprint evidence, body-width lanes, room identity, paint hysteresis, message box mask');
 }
 
 function walk(mode, steps) {
@@ -1417,7 +1494,7 @@ function walk(mode, steps) {
     if (res.moved < 6 && !res.lost && !res.fade && !res.transition) {
       // the game pauses when its window loses focus: a zero move is not evidence of a wall
       // until the key has provably landed, and marking a fake wall poisons the map
-      sh(['focus']); sleep(250);
+      refocus(); sleep(250);
       const retry = step(r, dir, ms);
       if (retry.moved >= 6) { res = retry; console.log(`  refocused: ${dir} moved ${retry.moved.toFixed(0)}px after all`); }
     }
@@ -1554,6 +1631,9 @@ function walk(mode, steps) {
   console.log(`saved ${statePath()}.bin, world ${r.meta.world.map(Math.round)}`);
 }
 
+// Import guard: tmp_palette.mjs and any future tool needs classify() without running a verb.
+export { classify };
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
 const cmd = process.argv[2] || 'mark';
 if (cmd === 'init') {
   fs.mkdirSync(DIR, { recursive: true });
@@ -1574,6 +1654,21 @@ if (cmd === 'init') {
   paint(r, b, r.meta.cam); markRobe(r, b, r.meta.cam); markFeet(r, r.meta.cam, me);
   saveRoom(r);
   console.log(`align dx ${a.dx} dy ${a.dy} cost ${a.cost.toFixed(1)} | world ${r.meta.world.map(Math.round)} | trail ${r.meta.trail.length}`);
+} else if (cmd === 'nudge') {
+  // Walkability probe that stays inside the mapper: one verified step, reported as a distance.
+  // Hand-driving invalidates the grid; this does not, because paint() follows the same step.
+  const dir = process.argv[3] || 'up';
+  const ms = Number(process.argv[4] || 600);
+  const r = loadRoom();
+  const s = settlePlayer(r);
+  if (!s) console.log(`nudge ${dir}: sprite not found (fade or hidden by animation)`);
+  else {
+    r.meta.prevBuf = s.b;
+    r.meta.me = [s.p.x, s.p.y];
+    const d = step(r, dir, ms);
+    saveRoom(r);
+    console.log(`nudge ${dir} ${ms}ms -> ` + JSON.stringify(d));
+  }
 } else if (cmd === 'resync') {
   // Drive the character by hand and meta.cam goes stale, which poisons every later step. Re-derive
   // my cell from the scenery alone: paint the live frame into a scratch grid wherever the old
@@ -1671,4 +1766,5 @@ if (cmd === 'init') {
     const nx = best[0] + dx, ny = best[1] + dy, i2 = gidx(nx, ny);
     console.log(`  ${dx},${dy} ${CL[r.grid[i2]] || '?'} THIN=${THIN[i2]} passable=${passable(r, nx, ny)} bodyFit=${bodyFit(r, nx, ny)}`);
   }
+}
 }

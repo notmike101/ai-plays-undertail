@@ -53,9 +53,8 @@ function score(a, b, x0, y0, x1, y1, dx, dy) {
   return sum / n;
 }
 
-function report(x0, y0, x1, y1, maxShift) {
+function report(x0, y0, x1, y1, maxShift, cmd) {
   const a = grabRaw('logs/motion-a.bin');
-  const cmd = arg.slice(5);
   if (cmd.length) execFileSync('node', ['src/play.mjs', ...cmd], { stdio: 'inherit' });
   const b = grabRaw('logs/motion-b.bin');
   const S = maxShift;
@@ -88,7 +87,11 @@ if (arg[0] === 'files') {
   console.log(`${pa} vs ${pb} ROI ${x0},${y0}-${x1},${y1}: offset ${best[0]},${best[1]} ` +
     `(mean |d| ${best[2].toFixed(1)}; at (0,0) it was ${at0.toFixed(1)})`);
 } else if (arg[0] === 'match') {
-  report(num(arg[1]), num(arg[2]), num(arg[3]), num(arg[4]), arg[5] === undefined ? 40 : num(arg[5]));
+  // The shift bound is optional. It used to be read positionally AND left in the command list,
+  // so `match x0 y0 x1 y1 40 hold left 1200` ran `play.mjs 40 ...` ("unknown cmd: 40") and every
+  // documented push/NPC measurement from the handoff died before grabbing frame B.
+  const hasS = arg[5] !== undefined && /^-?\d+$/.test(arg[5]);
+  report(num(arg[1]), num(arg[2]), num(arg[3]), num(arg[4]), hasS ? num(arg[5]) : 40, hasS ? arg.slice(6) : arg.slice(5));
 } else {
   // No comparison yet: just park a raw grab so a later `files` run can use it.
   grabRaw('logs/motion-a.bin');
