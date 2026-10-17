@@ -388,3 +388,15 @@ results. No engine internals, no outside walkthroughs.
   yellow arrow plates plus the sign "* The western room is the eastern room s blueprint." - that points
   at the twin room, where a block sits between two channels with nothing standing on it. Pushing is
   testable there, not here.
+
+### The western room is the eastern room's blueprint, literally (run 1)
+- The octagon's **south arch** leads into the octagonal statue room, and that room's west edge (grey
+  step tiles) leads into a third puzzle room: the channel room mirrored - water channel on the WEST,
+  same brick block in it, same vine columns, and the yellow arrow decal repeated in two mirrored pairs
+  (`evidence/run1/29_*`, `evidence/run1/31_*`). The sign is literal.
+- The block in this room is **not walkable**: 1200 ms of held `left` stopped me at its east face while
+  the same brown brick art is a bridge in the eastern room (`evidence/run1/30_*`). Same picture,
+  different physics - the difference is a tile of water level, which colour cannot separate.
+- The arrow decal and its two yellow plates are not readable either: `z` from the floor directly under
+  them gives nothing, like the grey wall plaques. They are painted hint art.
+- The block is not pushable in either room; a sustained push moved neither it nor Toriel.
