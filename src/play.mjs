@@ -9,7 +9,7 @@ const cmd = arg[0];
 function req(msg) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket('ws://127.0.0.1:' + PORT);
-    const t = setTimeout(() => { ws.close(); reject(new Error('ws timeout')); }, 30000);
+    const t = setTimeout(() => { ws.close(); reject(new Error('ws timeout')); }, Number(process.env.PLAY_TIMEOUT || 240000));
     ws.on('open', () => ws.send(JSON.stringify(msg)));
     ws.on('message', (d) => { clearTimeout(t); ws.close(); resolve(JSON.parse(String(d))); });
     ws.on('error', (e) => { clearTimeout(t); reject(e); });

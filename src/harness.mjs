@@ -81,7 +81,7 @@ async function exec(msg) {
       // picks the box position that maximises distance from predicted pellets.
       const secs = msg.seconds || 8;
       let heldX = null, heldY = null, iters = 0, bulletFrames = 0, closest = 1e9;
-      let last = [];
+      let last = [], empty = 0, ended = '';
       const setAxis = async (axis, dir) => {
         const cur = axis === 'x' ? heldX : heldY;
         if (cur === dir) return;
@@ -97,6 +97,8 @@ async function exec(msg) {
         const [x0, y0, x1, y1] = s.inner;
         iters++;
         if (s.bullets.length) bulletFrames++;
+        empty = s.bullets.length ? 0 : empty + 1;
+        if (bulletFrames > 0 && empty > 25) { ended = 'pellets stopped'; break; }
         const cur = s.bullets.map((b) => [b[0], b[1]]);
         const pred = cur.map(([bx, by]) => {
           let bestD = 1e9, src = null;
@@ -130,7 +132,7 @@ async function exec(msg) {
         await sleep(20);
       }
       await setAxis('x', null); await setAxis('y', null);
-      return { ok: true, iters, bulletFrames, closestPx: closest === 1e9 ? null : Math.round(closest) };
+      return { ok: true, iters, bulletFrames, ended, closestPx: closest === 1e9 ? null : Math.round(closest) };
     }
     case 'seq': {
       const out = [];

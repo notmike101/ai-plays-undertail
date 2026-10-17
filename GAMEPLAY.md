@@ -57,10 +57,26 @@ results. No engine internals, no outside walkthroughs.
   game being frozen. The bridge now pulls the game window to the foreground before
   every key press.
 
+### The flower's attack and the rescue (run 1)
+- The lesson turned hostile: "What's LV stand for? Why, LOVE, of course!", "Down here,
+  LOVE is shared through little white 'friendliness pellets'. Are you ready?", then
+  "Die.", "Kill or BE killed.", "Why would ANYONE pass up an opportunity like this!?"
+- Pellets are small white blobs; they surround the box in a ring and the flower grins.
+- Result: my HP fell from 20/20 to 1/20. Cause was mine: I kept pressing the advance
+  key while the pellets were hitting me, and I never moved the SOUL during the attack.
+- Then TORIEL appears — "I am TORIEL, caretaker of the RUINS." — and my HP is back to
+  20/20, so something healed me during/after her arrival.
+- Her lines so far: "I pass through this place every day to see if anyone has fallen
+  down.", "You are the first human to come here in a long time.", "Come! I will guide
+  you through the catacombs."
+- Vocabulary learned: the world is the UNDERGROUND; this area is the RUINS; monsters
+  have LV and LOVE; HP is health, 0 HP = lose.
+- Rule I set for myself: before advancing any dialogue during an attack, run the dodge
+  loop first; never tap the advance key while white blobs are on screen.
+- Evidence saved in evidence/run1/ (frames 01-07).
+
 ## Current run
-- Run 1 (fresh install, first save not reached yet). Entered name came out **HMPO**
-  because a stray confirm keypress picked an extra letter before I corrected the
-  entry; harmless, name is cosmetic. In the lesson screen with the talking flower.
-- Instance note: the first game process was left running when this session started;
-  it was replaced by a clean launch from the install directory (that is the instance
-  being played now).
+- Run 1, name **HMPO** (a stray confirm keypress added an extra letter; cosmetic).
+- Standing with Toriel after the rescue. LV 1, HP 20/20. No save point seen yet.
+- Instance note: the pre-existing game process was replaced by a clean launch from the
+  install directory; that instance is the one being played.

@@ -1,5 +1,5 @@
-Add pixel scan and reflex dodge controller; battle box detection
+Journal the flower betrayal and Toriel rescue; save run1 evidence frames
 
-- bridge scan: finds the battle box outline (thin border, dark interior, side walls), the red SOUL centroid, and compact white bullet blobs; ignores speech-bubble text
-- harness dodge: safe-spot steering with pellet velocity prediction, holds arrow keys
-- play.mjs: scan, dodge
+- evidence/run1: 01 intro through 07 toriel guide (HP 20/20 after rescue)
+- GAMEPLAY.md: attack postmortem (HP 20->1 while advancing dialogue), new rule to dodge before advancing text
+- PROGRESS.md: current situation and next actions
