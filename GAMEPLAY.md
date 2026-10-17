@@ -402,6 +402,11 @@ results. No engine internals, no outside walkthroughs.
 - The arrow decal and its two yellow plates are not readable either: `z` from the floor directly under
   them gives nothing, like the grey wall plaques. They are painted hint art.
 - The block is not pushable in either room; a sustained push moved neither it nor Toriel.
-- The spike field east of the eastern room's block does not depend on that block: the ledge room's
-  corridor reaches the channel's east side from the north, so the spikes can be approached without
-  crossing the channel at all.
+- There is **no east bank** to the channel: the corridor I earlier called "the channel room's east side"
+  is the same west corridor seen after a camera scroll. The spike field is therefore only enterable by
+  walking the brick block, and a stationary Toriel occupies that block's one walkable row - `z` at 25 px
+  on the same row produced no box, she never moves off it over 24 s of watching, and she cannot be pushed
+  (`evidence/run1/27_*`, `p1/p3` frames). The spike tiles remain untested underfoot because they are
+  unreachable, not because they were ruled solid.
+- Map caution: the yellow `OTH` blobs that looked like floor pressure plates were **my own face pixels**
+  painted along my trail. The only yellow art is the wall-band decal, which is not readable.
