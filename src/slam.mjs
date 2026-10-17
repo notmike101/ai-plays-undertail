@@ -259,10 +259,14 @@ function paint(r, b, cam) {
       if (gx < 0 || gx >= GW || gy < 0 || gy >= GH) continue;
       const i = gidx(gx, gy);
       if (r.grid[i] === BLOCKED) continue; // walls do not move; a tested wall survives repaints
+      // PROVEN means my feet were on this cell. No colour vote may downgrade that to impassable;
+      // a walkable verdict is still allowed to refine the picture.
+      if (r.grid[i] === PROVEN && !WALK.has(top)) continue;
       r.grid[i] = top;
     }
   }
   thinSeamsToFloor(r);
+  stoodRepair(r);
 }
 
 // The floor tiles are drawn with 1-2 px black seams, and black is exactly what VOID means
@@ -293,6 +297,33 @@ function thinSeamsToFloor(r) {
   for (let i = 0, n = GW * GH; i < n; i++) {
     if (r.grid[i] === VOID && Math.min(RUNH[i], RUNV[i]) <= 3) r.grid[i] = FLOOR;
   }
+}
+// A footstep outranks a colour. This room draws its walkable floor with a flat brick-and-seam
+// texture, so the colour vote stamped BRICK and VOID over ground I physically stood on (185 of
+// 828 footfalls) and left 2 cells routable from my own position, inside a room I had walked
+// across. Footfalls are ~13 cells apart, so repairing the exact cells is not enough: the grid is
+// repaired along the swept path, claiming the collision box at every point of every trail
+// segment. A wall cannot overlap the box I am standing in, so this is physical evidence, not a
+// colour guess. Segments are applied incrementally (one per paint), and in full on `slam clean`.
+function stoodRepair(r) {
+  const t = r.meta.trail || [];
+  const start = Math.max(1, r.meta.repaired || 1);
+  for (let k = start; k < t.length; k++) {
+    const a = cellOf(t[k - 1][0], t[k - 1][1]), b = cellOf(t[k][0], t[k][1]);
+    const n = Math.max(Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1]), 1);
+    for (let s = 0; s <= n; s++) {
+      const cx = a[0] + Math.round((b[0] - a[0]) * s / n), cy = a[1] + Math.round((b[1] - a[1]) * s / n);
+      for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) {
+        if (dx * dx + dy * dy > 12) continue; // the collision box, not the picture of my sprite
+        const gx = cx + dx, gy = cy + dy;
+        if (gx < 1 || gx >= GW - 1 || gy < 1 || gy >= GH - 1) continue;
+        const i = gidx(gx, gy);
+        if (WALK.has(r.grid[i])) continue;
+        r.grid[i] = PROVEN;
+      }
+    }
+  }
+  r.meta.repaired = t.length;
 }
 
 // The tiles I have physically stood on, plus the ground my sprite is standing on: paint
@@ -579,7 +610,7 @@ function markBlocked(r, cell, dir) {
     const gx = cell[0] + d[0] * s + (d[0] ? 0 : w), gy = cell[1] + d[1] * s + (d[1] ? 0 : w);
     if (gx < 1 || gx >= GW - 1 || gy < 1 || gy >= GH - 1) continue;
     const i = gidx(gx, gy);
-    if (r.grid[i] === VOID || r.grid[i] === BLOCKED) continue;
+    if (r.grid[i] === VOID || r.grid[i] === BLOCKED || r.grid[i] === PROVEN) continue; // my feet were there; a failed approach is not a wall
     r.grid[i] = BLOCKED;
   }
 }
@@ -861,7 +892,22 @@ function selftest() {
     for (let y = 480; y <= 560; y++) for (let x = 775; x <= 865; x++) if (r7.grid[gidx(x, y)] === VOID) r7.grid[gidx(x, y)] = BLOCKED;
     ok(!pickFrontier(r7, [820, 520], new Set()), 'a room whose whole outline is a tested wall still wants exploring');
   }
-  console.log('selftest ok: align anti-aliasing, transition classifier, seam cleanup, bfs arrival, frontier reach, blocked marking, room identity');
+  {
+    // A footstep outranks a colour. This room draws its walkable floor with a flat brick-and-seam
+    // texture, so the colour vote stamped BRICK and VOID over ground I physically stood on (185 of
+    // 828 footfalls) and left 2 cells routable from my own position. The trail repairs that, and a
+    // failed approach may not wall off a cell my feet have occupied.
+    const r8 = { grid: new Uint8Array(GW * GH), meta: { cam: [0, 0], trail: [[400, 0], [402, 0], [412, 0]] } };
+    for (let y = 490; y <= 510; y++) for (let x = 980; x <= 1030; x++) r8.grid[gidx(x, y)] = BRICK;
+    r8.grid[gidx(1001, 500)] = VOID; // a black seam over a cell I stood on
+    stoodRepair(r8);
+    ok(r8.grid[gidx(1000, 500)] === PROVEN && r8.grid[gidx(1001, 500)] === PROVEN, 'my own footprints did not overrule the colour vote');
+    ok(r8.grid[gidx(1010, 505)] === BRICK, 'stoodRepair erased walls I never stood on');
+    markBlocked(r8, [1000, 500], 'left');
+    ok(r8.grid[gidx(996, 500)] === BLOCKED, 'the blocked fan recorded nothing again');
+    ok(r8.grid[gidx(997, 500)] === PROVEN, 'a failed approach walled off a cell my feet had occupied');
+  }
+  console.log('selftest ok: align anti-aliasing, transition classifier, seam cleanup, bfs arrival, frontier reach and cap, blocked marking, footprint evidence, room identity');
 }
 
 function walk(mode, steps) {
@@ -1073,6 +1119,9 @@ if (cmd === 'init') {
 } else if (cmd === 'clean') {
   const r = loadRoom();
   thinSeamsToFloor(r);
+  const before = r.grid.reduce((a, v) => a + (v === BRICK || v === VOID ? 1 : 0), 0);
+  stoodRepair(r);
+  const after = r.grid.reduce((a, v) => a + (v === BRICK || v === VOID ? 1 : 0), 0);
   saveRoom(r);
-  console.log(`seams cleaned in room ${r.s.room}`);
+  console.log(`room ${r.s.room}: seams cleaned, ${before - after} impassable cells relieved because my feet were on them`);
 }
