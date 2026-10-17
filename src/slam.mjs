@@ -877,6 +877,13 @@ function walk(mode, steps) {
   for (let i = 0; i < steps; i++) {
     const cur = cellOf(...r.meta.world);
     let path = bfs(r, cur, [tgx, tgy]);
+    // A target stops being a target when fresh paint reclassifies it: the frontier was chosen
+    // while that cell was UNKNOWN, and as I approached, the picture resolved it into brick. Nine
+    // steps were burned walking toward a wall that grew under me before the planner noticed.
+    if (mode === 'frontier' && path !== null) {
+      const tc = r.grid[gidx(tgx, tgy)];
+      if (tc !== UNKNOWN && tc !== VOID) path = null;
+    }
     // A black gap is not standable ground, so bfs can only bring my body as close as it fits;
     // that reads as "already arrived" and would strand me inside a room I have fully painted.
     // Press into the gap instead: a failed step records the wall, a good one walks me through
@@ -885,6 +892,7 @@ function walk(mode, steps) {
     if (press) path = [cur, [tgx, tgy]];
     if (!path || (path.length <= 10 && !press)) {
       if (mode === 'frontier') {
+        if (process.env.TRACE) console.log(`  ${path ? 'short path ' + path.length : 'NO ROUTE'} from ${cur} (cell ${r.grid[gidx(cur[0], cur[1])]}) to ${tgx},${tgy} (cell ${r.grid[gidx(tgx, tgy)]})`);
         tried.add(tgx + ',' + tgy);
         const p = pickFrontier(r, cur, tried);
         if (!p) {
