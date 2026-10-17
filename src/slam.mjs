@@ -387,34 +387,62 @@ function passable(r, gx, gy) {
   return false;
 }
 
-// Frontier: unknown cells touching known floor, farthest first. Taking the farthest one I
-// can actually reach is what stops the walker sawing between an unreachable target and one
-// under my own feet.
-function frontierList(r, start, skip) {
-  const out = [];
-  const R = 320;
-  for (let gy = Math.max(1, start[1] - R); gy < Math.min(GH - 1, start[1] + R); gy++) {
-    for (let gx = Math.max(1, start[0] - R); gx < Math.min(GW - 1, start[0] + R); gx++) {
-      if (skip.has(gx + ',' + gy) || r.grid[gidx(gx, gy)] !== UNKNOWN) continue;
-      let near = false;
-      for (let dy = -1; dy <= 1 && !near; dy++) for (let dx = -1; dx <= 1; dx++) {
-        if (walkable(r, gx + dx, gy + dy)) { near = true; break; }
-      }
-      if (!near) continue;
-      out.push([gx, gy, Math.abs(gx - start[0]) + Math.abs(gy - start[1])]);
+// Reachability is ONE flood, not one bfs per frontier candidate. The old list searched only
+// +-320 cells around me and sorted by straight-line distance, so the unexplored edge behind
+// me - the side I had already walked away from, which is where the doorway out of room 3 was
+// - was never even a candidate, and every candidate it did try sat behind a brick wall.
+// Result: "nothing left to map" in a room with a third of it still UNKNOWN.
+const REACH = new Int32Array(GW * GH).fill(-1);
+const REACH_T = [];
+function flood(r, start) {
+  for (const t of REACH_T) REACH[t] = -1;
+  REACH_T.length = 0;
+  const si = gidx(start[0], start[1]);
+  REACH[si] = 0; REACH_T.push(si);
+  QUEUE[0] = si;
+  let head = 0, tail = 1;
+  while (head < tail) {
+    const cur = QUEUE[head++];
+    const x = cur % GW, y = (cur - x) / GW;
+    const d = REACH[cur] + 1;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx, ny = y + dy;
+      if (nx < 1 || nx >= GW - 1 || ny < 1 || ny >= GH - 1) continue;
+      const ni = gidx(nx, ny);
+      if (REACH[ni] !== -1 || !passable(r, nx, ny) || !bodyFit(r, nx, ny)) continue;
+      REACH[ni] = d; REACH_T.push(ni); QUEUE[tail++] = ni;
     }
   }
-  out.sort((a, b) => b[2] - a[2]);
-  return out;
+  return REACH_T.length;
 }
 
+// The farthest unexplored cell I can actually get within 6 px of, measured by real walking
+// distance through this room rather than by crow-flies distance.
 function pickFrontier(r, cur, tried) {
-  for (const [gx, gy] of frontierList(r, cur, tried)) {
-    const p = bfs(r, cur, [gx, gy]);
-    if (!p || p.length <= 10) { tried.add(gx + ',' + gy); continue; } // unreachable, or closer than one key hold - that is how the sawing started
-    return { t: [gx, gy], path: p };
+  flood(r, cur);
+  let best = null;
+  for (let gy = 1; gy < GH - 1; gy++) {
+    for (let gx = 1; gx < GW - 1; gx++) {
+      const i = gidx(gx, gy);
+      if (r.grid[i] !== UNKNOWN || tried.has(gx + ',' + gy)) continue;
+      let near = false;
+      for (let dy = -1; dy <= 1 && !near; dy++) for (let dx = -1; dx <= 1; dx++) if (walkable(r, gx + dx, gy + dy)) near = true;
+      if (!near) continue;
+      let ad = 4, d = -1;
+      for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) {
+        const dd = Math.abs(dx) + Math.abs(dy);
+        if (dd >= ad) continue;
+        const v = REACH[gidx(gx + dx, gy + dy)];
+        if (v >= 0) { ad = dd; d = v; }
+      }
+      if (ad > 3) continue;
+      if (!best || d + ad > best.d) best = { t: [gx, gy], d: d + ad };
+    }
   }
-  return null;
+  if (!best) return null;
+  const p = bfs(r, cur, best.t);
+  if (!p || p.length <= 10) { tried.add(best.t[0] + ',' + best.t[1]); return pickFrontier(r, cur, tried); } // closer than one key hold - that is how the sawing started
+  return { t: best.t, path: p };
 }
 
 function plankGoal(r) {
@@ -730,7 +758,18 @@ function selftest() {
     ok(bfs(r5, [790, 500], [828, 500]), 'bfs refused a goal it can stand 6 px away from');
     ok(!bfs(r5, [790, 500], [840, 500]), 'bfs walked through a brick wall to get near a goal');
   }
-  console.log('selftest ok: align anti-aliasing, transition classifier, seam cleanup, bfs arrival, blocked marking, room identity');
+  {
+    // The old frontier list only looked +-320 cells around me and ranked by crow-flies
+    // distance, so the unexplored edge behind me - where the doorway out of room 3 actually
+    // was - was never a candidate, and the walk declared a half-mapped room finished.
+    // Candidates now come from one reachability flood over the whole grid.
+    const r6 = { grid: new Uint8Array(GW * GH), meta: { cam: [0, 0], trail: [] } };
+    for (let y = 508; y <= 513; y++) for (let x = 700; x <= 1100; x++) r6.grid[gidx(x, y)] = FLOOR;
+    const p = pickFrontier(r6, [720, 510], new Set());
+    ok(p && p.t[0] > 1040, `the far unexplored edge behind the old search window was not picked (${p ? p.t : 'none'})`);
+    ok(p && p.path.length > 320, `the route to it was not the long way around (${p && p.path.length})`);
+  }
+  console.log('selftest ok: align anti-aliasing, transition classifier, seam cleanup, bfs arrival, frontier reach, blocked marking, room identity');
 }
 
 function walk(mode, steps) {
@@ -902,14 +941,11 @@ if (cmd === 'init') {
 } else if (cmd === 'probe') {
   const r = loadRoom();
   const cur = cellOf(...r.meta.world);
-  const list = frontierList(r, cur, new Set());
+  const reached = flood(r, cur);
   let w = 0;
   for (let y = 0; y < GH; y++) for (let x = 0; x < GW; x++) if (walkable(r, x, y)) w++;
-  console.log(`me ${cur} walkable(me)=${walkable(r, cur[0], cur[1])} walkable cells ${w} frontier ${list.length}`, list.slice(0, 3));
-  for (const [gx, gy] of list.slice(0, 5)) {
-    const p = bfs(r, cur, [gx, gy]);
-    console.log(`  frontier ${gx},${gy} path ${p ? p.length : 'none'}`);
-  }
+  const p = pickFrontier(r, cur, new Set());
+  console.log(`me ${cur} walkable cells ${w}, routable from me ${reached}, next frontier ${p ? p.t : 'none'} (path ${p ? p.path.length : 0})`);
 } else if (cmd === 'maskdbg') {
   const b = grab();
   const p = playerPosFrom(b);
