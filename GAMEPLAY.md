@@ -142,3 +142,33 @@ results. No engine internals, no outside walkthroughs.
 - The harness now reports dialogue on its own: whenever a text box's ink settles,
   the text is printed and appended to `logs/dialog.jsonl`. Every line quoted above
   came from that log or from a captured page frame, not from memory.
+
+### Froggit encounter (run 1)
+- Walking down out of the maze room triggered an encounter: "* Froggit attacks you !",
+  then the box showed "* Froggit" with a full green HP bar and my menu
+  `FIGHT ACT ITEM MERCY` (FIGHT was highlighted by default, in yellow).
+- My first two arrow presses did not register, so FIGHT stayed highlighted; a later
+  confirm press went to whatever was highlighted at that moment. I cannot prove from
+  the log which action ended the fight, so I am recording that as an unresolved
+  mistake rather than pretending I chose ACT first.
+- What I did deliberately, following Toriel's "strike up a friendly conversation":
+  ACT opened the submenu `* Check / * Compliment / * Threat`; I chose Compliment and
+  the game said "* Froggit didn't understand what you said, but was flattered
+  anyway."
+- End of fight, read from the box: "* YOU WON !" / "* You earned 0 EXP and 0 gold."
+  My HP bar stayed full width (20/20) — I took no damage, and no EXP was earned, so no
+  monster was killed by me. Froggit is gone from the room.
+- No pellet-dodge phase ever started: the bullet box never appeared, so nothing to dodge.
+
+### The plank, water and spike room (in progress)
+- The room I am in now: purple maze ledges, a brown plank bridge over light-blue water,
+  two blocks of grey spike tiles in the water, a vine-covered wall section, and a small
+  plaque on the left wall that I have not been able to reach and read yet.
+- Toriel stands on the near end of the plank and blocks it. Pressing the interaction
+  key at her produced no dialogue, so the puzzle is mine to work out.
+- Measurement problem found and fixed: because the camera follows me, my on-screen
+  position stays put mid-room, and my movement tool reported "blocked" for moves that
+  actually worked. It now decides from whether the picture scrolled (measured: a wall
+  press changes ~3k pixels of my own animation, real walking changes ~77k).
+- No yellow switch plates here; the hazard I can see is the spike tiles.
+

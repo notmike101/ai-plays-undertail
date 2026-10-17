@@ -66,7 +66,9 @@ scan | box <out.bin> | mem <ascii|%20|hex:BB..> [maxhits] | memr <hexaddr> <len>
   nothing" usually means paused, or a text box is open (a box blocks movement).
 - Movement is ~0.3 px per ms of held key; the camera follows the player, so the
   player's *screen* position is nearly constant mid-room and only changes at room
-  edges. Measure world travel by landmarks (plates, columns), not screen x.
+  edges. Measure travel by whether the picture changed, not by my screen position:
+  measured 3k changed px for a key held into a wall (my own walk animation), 77k px for
+  real walking, 1.5k px standing still, so `move.mjs` uses a 12k threshold.
 
 ## Restart recipe
 
