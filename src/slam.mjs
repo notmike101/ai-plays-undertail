@@ -53,7 +53,9 @@ function grab() {
     sh(['raw', 'grab', BIN]);
     const b = fs.readFileSync(BIN);
     last = smearRows(b);
-    if (last >= 100) return b;
+    if (last >= 40) return b; // a real smear repeats rows wholesale; a merely FLAT frame (this one:
+    // 91 distinct scanlines, brick texture plus letterbox) must not be rejected, or every quiet room
+    // would burn four grabs per step and then take the last one anyway.
     console.log(`the frame grab came back smeared (${last} distinct scanlines); grabbing again`);
   }
   sh(['raw', 'grab', BIN]); // four smears in a row: take it rather than stall, and say so
