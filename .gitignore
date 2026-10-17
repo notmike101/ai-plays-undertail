@@ -1,0 +1,4 @@
+node_modules/
+src/bridge/bridge.exe
+build.rsp
+logs/frames/

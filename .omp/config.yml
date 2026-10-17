@@ -1,0 +1,2 @@
+modelRoles:
+  default: llama.cpp/qwen3.8-flash-next-iq3_s:xhigh
