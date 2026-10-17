@@ -394,9 +394,14 @@ results. No engine internals, no outside walkthroughs.
   step tiles) leads into a third puzzle room: the channel room mirrored - water channel on the WEST,
   same brick block in it, same vine columns, and the yellow arrow decal repeated in two mirrored pairs
   (`evidence/run1/29_*`, `evidence/run1/31_*`). The sign is literal.
-- The block in this room is **not walkable**: 1200 ms of held `left` stopped me at its east face while
-  the same brown brick art is a bridge in the eastern room (`evidence/run1/30_*`). Same picture,
-  different physics - the difference is a tile of water level, which colour cannot separate.
+- The block is a bridge with **exactly one walkable row**, the middle one. My first probe pressed
+  against its north face and stopped, which I recorded as "not walkable" (`evidence/run1/30_*`) - that
+  reading was wrong: standing in the middle row puts me on the brick, and walking east steps off onto
+  the far bank (`evidence/run1/32_*`, `evidence/run1/33_*`). The same one-row rule is why Toriel's body
+  seals the eastern room's crossing completely: she is standing in that row.
 - The arrow decal and its two yellow plates are not readable either: `z` from the floor directly under
   them gives nothing, like the grey wall plaques. They are painted hint art.
 - The block is not pushable in either room; a sustained push moved neither it nor Toriel.
+- The spike field east of the eastern room's block does not depend on that block: the ledge room's
+  corridor reaches the channel's east side from the north, so the spikes can be approached without
+  crossing the channel at all.
