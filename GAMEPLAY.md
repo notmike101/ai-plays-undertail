@@ -452,3 +452,34 @@ results. No engine internals, no outside walkthroughs.
   (hwnd + pid) has to match what was captured last before any zero-move may be called a wall; a
   foreground that belongs to a *different* window than the capture window means the loop is severed,
   not that geography is.
+
+### Two rooms west and north of the entrance: a faced door, six stones, and a switch sign (run 1)
+- The **pale stair fans climb**. Standing on the east fan and holding up moved me onto the octagonal
+  plateau (measured 43 px then 31 px, then a stop at the plateau's north edge). Nothing about the
+  stairs' colour predicted that; only walking did.
+- In the plateau's north wall, above a black doorway, a grey plaque: `z` from the tile directly under
+  it produced **no text**, and zoomed 12x the plaque is a **dither pattern of uniform dark blocks** -
+  no strokes, no widths, no ascenders. Not text. (Grey plaques elsewhere stay unproven, but this one
+  is now tested from true adjacency.)
+- Going through that doorway changed rooms and put **Toriel** in front of me:
+  `* Welcome to your new home, innocent one.` then
+  `* Allow me to educate you in the operation of the RUINS.` (`evidence/run1/37_*`).
+- That room has a **giant closed magenta door with a face** (two angled eyes, a nose, a mouth) in its
+  north wall, six **grey stones set in a ring**, a grey plaque on the brick band, and a yellow `[Z]`
+  sign. After Toriel's lines the faced door was **open** - a black opening where the face had been
+  (`evidence/run1/38_*`). I pressed nothing at it: she opens doors.
+- The `[Z]` sign, read from true adjacency, three pages:
+  `* Ancient fusions between diversions and doorkeys.` /
+  `* One must solve them to move from room to room.` /
+  `* Please adjust yourself to the sight of the ...` (the third page was never captured whole: the
+  dialog log ring truncated it and my `z` closed the box before the line finished typing).
+- Walking west out of that room - I did not notice the fade, only that the next frame was a different
+  room - put me somewhere with **vines on the north wall, a water channel crossed by one brick plank
+  on the east**, Toriel, and a grey sign on a post. Its two pages are the first puzzle instruction of
+  the run: `* To make progress here, you will need to trigger several switches.` /
+  `* Do not worry, I have labelled the ones that you need to flip.` (`evidence/run1/40_*`). The `'`
+  in the OCR is a comma; `ad?ust` is an untrained `j` glyph.
+- Working hypothesis, held as a hypothesis: the six stones in the ring are the labelled switches.
+  Nothing yet links them to the channel room, and I have read no label on any stone.
+- Caution earned: a **room change happened between two of my key presses** and only the following
+  frame revealed it. The eye does not track rooms; the identity matcher has to.

@@ -17,8 +17,21 @@
 - Consequence for the run: everything mapped earlier (octagon / corridor / channel / statue / ledge /
   twin rooms) is ahead of me again, so the route must be walked, not resumed. Toriel is not in view in
   this room.
-- Open: whether the two pale stair fans climb onto the plateau (colour alone says nothing; both are
-  UNKNOWN and must be walked), and what the red hedge block and grey wall face hide.
+- Resolved: the **east stair fan climbs** onto the pale plateau (walked it: 43 px, then 31 px, then the
+  plateau's north edge). Still open: what the red hedge block and the grey wall face hide.
+- Through the plateau's black doorway: a room with a **faced magenta door** (it opened by itself once
+  Toriel was near), six **stones in a ring** and a yellow `[Z]` sign; walking west from there reaches a
+  room with **vines and a water channel crossed by one brick plank**, where Toriel and a grey sign stand.
+- First puzzle instruction of the run, read from true adjacency: `To make progress here, you will need
+  to trigger several switches.` / `Do not worry, I have labelled the ones that you need to flip.`
+  (`evidence/run1/40_*`). The `[Z]` sign's third page was never captured whole and must be re-read with
+  the box left to finish typing.
+- Tooling, each with the failure that produced it: `refocus()` + `tools/refocus.ps1` (foreground theft
+  read as walls); the **PXMS/CAM_MS split** - 0.18 px/ms sprite travel vs the camera's lagging scenery
+  scroll, and an align search window that had made the old 0.10 constant self-confirming; `foldStep()`
+  so an unlocatable sprite cannot freeze the map; `slam nudge` as the in-mapper walkability probe;
+  `roomN-fit.png`; `tmp_palette.mjs` / `tmp_crop.mjs`; `logs/tmp_rate.mjs` for the rate. `selftest`
+  green, including the new lost-step case and the widened anti-alias case.
 
 ## Status (2026-10-17, session 3): the walker can cross the Ruins brick bridge
 - `selftest` green. Pushed this session: thin brick (`f1980ee`), `legalAim` (`ebe3d49`), the smear

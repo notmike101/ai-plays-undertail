@@ -37,5 +37,10 @@ witnessed.
   (`z` facing it): `* ( The shadow of the ruins ... )`, `* ( HP fully restored. )`, then
   `Ruins Entrance` / `File saved.` (`evidence/run1/35_*`). No route-relevant choice was made: still
   LV 1, HP restored to 20/20, 0 EXP, no monster killed, nothing skipped.
+- 2026-10-17, later: walked on from the save room - up the east stair fan, through the plateau doorway,
+  past a faced magenta door that opened by itself, through a room with six stones in a ring, into a room
+  with a water channel on a brick plank. No fork presented itself and no choice was made; no encounter,
+  no EXP, still LV 1. A sign there says progress needs **several switches** "labelled" for me, so the
+  route forward is a puzzle I have not solved yet.
 - Nothing here is claimed as an ending; the table above stays empty until one is
   witnessed end to end.

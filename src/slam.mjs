@@ -34,10 +34,10 @@ const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 
 
 // The game only receives SendInput while it is the FOREGROUND window, and bridge's own pull
 // (AttachThreadInput + SetForegroundWindow) is refused by some windows: on this machine Task Manager
-// held the foreground, every key was eaten, frames came back byte-identical, and the mapper was about
-// to record a WALL where the true fault was "no input". Try bridge's `focus` first, then the alt-tab
-// primitive in tools/refocus.ps1 (which never touches OBS).
+// kept stealing the foreground, so every key press was accepted by bridge and delivered to nothing.
+// A zero-move step is therefore not evidence of a wall until the foreground has been reclaimed.
 function refocus() {
+  // first let bridge try its own pull
   let j = null;
   try { j = JSON.parse((sh(['focus']) || Buffer.from('')).toString()); } catch { }
   if (j && j.foreground) return true;
@@ -47,6 +47,13 @@ function refocus() {
   } catch (e) { console.log('tools/refocus.ps1 failed: ' + e.message); }
   return false;
 }
+
+// Measured, not assumed: sprite displacement per held millisecond. Re-measured with
+// logs/tmp_rate.mjs (three 500 ms and two 1000 ms holds): 0.174-0.189 px/ms. An earlier value of
+// 0.10 came from a whole-window align probe run in a room the camera never scrolls, where the
+// align reports 0 px for any amount of walking - it measured motion, not my speed. step() credits
+// only 1.25x this much to a hold, so a short tap can never be believed to have crossed a cell.
+export const PXMS = 0.18;
 
 // A raw grab sometimes comes back TORN: the buffer is a vertical smear whose rows repeat, which
 // silently poisons both align() (it happily "confirms" the stale camera against smeared scenery)
@@ -108,12 +115,13 @@ function classify(b, x, y) {
 // than the pattern period, which makes aliasing impossible. A near-identical frame means the
 // camera did not move at all (clamped, or I am pressed against something).
 const UNIT = { right: [1, 0], left: [-1, 0], up: [0, -1], down: [0, 1] };
-// Walking speed, re-measured on this build with src/motion.mjs over the leaf-square border
-// (a non-repeating ROI, so no brick-period aliasing): a 900 ms hold scrolled the scenery 90 px
-// and a 400 ms hold 36 px, i.e. 0.10 px/ms. The old 0.18 over-predicted by 80%: align's tie-break
-// aims at the commanded shift on featureless floor, so every flat-floor step was stamped ~60 px
-// too far and the map stretched. (A 1500 ms hold moved only 84 px - that was a wall, not speed.)
-const PXMS = 0.10;
+// Camera scroll, not my speed. The overworld camera LERPS: after a 900 ms hold the sprite had
+// travelled ~162 px while the scenery had only scrolled ~90 px (measured both ways - sprite
+// displacement in a room the camera cannot scroll, and scenery shift in one it can), and in a room
+// smaller than the window the scenery never scrolls at all. align() aims its search at this
+// midpoint, but its window has to stay open as far as real travel (PXMS), or a genuine long scroll
+// becomes unreachable and every step gets credited with the lag instead.
+const CAM_MS = 0.10;
 function samp(A, B, dx, dy) { // [mean luma delta, badly mismatched samples, samples]
   let s = 0, bad = 0, n = 0;
   for (let y = CY0 + 8; y < CY1 - 8; y += 6) for (let x = CX0 + 8; x < CX1 - 8; x += 6) {
@@ -133,12 +141,15 @@ function align(A, B, dir = null, ms = 150, sm = null) {
   let exp = [0, 0];
   if (dir) {
     const u = UNIT[dir];
-    exp = [Math.round(u[0] * ms * PXMS), Math.round(u[1] * ms * PXMS)];
+    exp = [Math.round(u[0] * ms * CAM_MS), Math.round(u[1] * ms * CAM_MS)];
     // The held axis may have scrolled the scenery anywhere between 0 (camera clamped at the
-    // room edge) and the commanded shift plus slack; the perpendicular axis barely moves.
+    // room edge) and what the hold could actually travel (PXMS) plus slack; the perpendicular
+    // axis barely moves. Aiming only at the lag midpoint used to cut the window at 104 px for a
+    // 900 ms hold, which made a real 160 px scroll unrepresentable.
     const ax = u[0] !== 0 ? 0 : 1;
+    const span = Math.round(ms * PXMS) + 14;
     for (let p = -3; p <= 3; p++) {
-      for (let a = Math.min(-2, exp[ax]); a <= Math.max(2, exp[ax]) + 14; a++) {
+      for (let a = Math.min(-2, exp[ax]); a <= Math.max(2, exp[ax]) + span; a++) {
         const dx = ax === 0 ? a : p, dy = ax === 1 ? a : p;
         pool.push([dx, dy, cost(A, B, dx, dy)]);
       }
@@ -871,6 +882,21 @@ function settlePlayer(r, tries = 6) {
   return null;
 }
 
+// Fold one measured step into the room's bookkeeping. Pure so the selftest can drive it.
+// `me` may be null: the sprite can be unlocatable (standing on scenery that shares its colour
+// class, mid-walk-cycle). Losing the sprite must not stall the map - the whole-window align still
+// says how far the camera scrolled, so the cell I walked into is still footprint evidence and my
+// world position has to follow that scroll instead of freezing where the last located sprite was.
+function foldStep(r, { me, a }) {
+  const before = r.meta.cam, me0 = r.meta.me;
+  r.meta.lastOff = [a.dx, a.dy];
+  r.meta.cam = [before[0] + a.dx, before[1] + a.dy];
+  if (me) r.meta.me = [me.x, me.y];
+  r.meta.world = [r.meta.cam[0] + r.meta.me[0], r.meta.cam[1] + r.meta.me[1] + FEET];
+  return Math.hypot(r.meta.cam[0] + r.meta.me[0] - (before[0] + me0[0]),
+    r.meta.cam[1] + r.meta.me[1] - (before[1] + me0[1]));
+}
+
 // one verified step; returns how far my world position actually moved
 function step(r, dir, ms = 150) {
   const before = r.meta.cam, me0 = r.meta.me;
@@ -885,11 +911,10 @@ function step(r, dir, ms = 150) {
   }
   if (dark(b) > 0.6) return { fade: true };
   const me = playerPosFrom(b);
-  if (!me) return { lost: true };
   // My own screen motion is the only thing that separates "the camera scrolled" from "the
   // camera clamped at the room edge and I walked instead"; align() cannot tell the two apart
   // over flat featureless floor, and getting it wrong doubles my recorded position.
-  const sm = [me.x - me0[0], me.y - me0[1]];
+  const sm = me ? [me.x - me0[0], me.y - me0[1]] : [0, 0];
   const a = classifyShift(r.meta.prevBuf || b, b, dir, ms, sm);
   if (a.transition) return { transition: a.transition };
   // Physics bound. My world position is cam + my screen position, so the camera shift plus my own
@@ -902,18 +927,16 @@ function step(r, dir, ms = 150) {
     console.log(`align claims ${Math.round(claimed)} px of travel from a ${ms} ms hold (max ${Math.round(phys)}): treating the camera as clamped`);
     a.dx = 0; a.dy = 0;
     // if my sprite anchor jumped by an impossible amount too, refuse the frame rather than smear it
-    if (Math.hypot(sm[0], sm[1]) > phys) return { lost: true };
+    if (me && Math.hypot(sm[0], sm[1]) > phys) return { lost: true };
   }
-  r.meta.lastOff = [a.dx, a.dy];
-  r.meta.cam = [before[0] + a.dx, before[1] + a.dy];
-  const d = Math.hypot(r.meta.cam[0] + me.x - (before[0] + me0[0]), r.meta.cam[1] + me.y - (before[1] + me0[1]));
-  r.meta.me = [me.x, me.y];
-  r.meta.world = [r.meta.cam[0] + me.x, r.meta.cam[1] + me.y + FEET];
+  const d = foldStep(r, { me, a });
   r.meta.prevBuf = b;
   paint(r, b, r.meta.cam);
   markRobe(r, b, r.meta.cam);
-  markFeet(r, r.meta.cam, me);
-  return { moved: d, cost: a.cost, world: [r.meta.cam[0] + me.x, r.meta.cam[1] + me.y] };
+  // On a lost frame the feet disc goes where the measured scroll says I got to: an estimate, but
+  // bounded by the physics check above, and the alternative is a hole in the map where I walked.
+  markFeet(r, r.meta.cam, r.meta.me);
+  return { moved: d, cost: a.cost, lost: !me, world: [r.meta.cam[0] + r.meta.me[0], r.meta.cam[1] + r.meta.me[1]] };
 }
 
 function show(r) {
@@ -1042,11 +1065,11 @@ function selftest() {
     ok(free.dx >= 10, `my sprite did not move, so the scenery should count as scrolled (dx ${free.dx})`);
   }
   {
-    // Speed model. Measured on this build with src/motion.mjs: 900 ms hold -> 90 px of scenery
-    // shift, 400 ms -> 36 px (0.10 px/ms). PXMS used to be 0.18, i.e. an expected 162 px for a
-    // 900 ms hold. Brick and stripes repeat every ~27-32 px, so an over-predicted expectation is
-    // a ZERO-COST alias of the true shift, and the near-tie tie-break happily picks it: every
-    // flat-floor step then stamped ~70 px of travel I never made.
+    // Anti-aliasing under the real speed model. Brick and stripes repeat every ~27-32 px, so a
+    // true 90 px scroll has ZERO-COST aliases at 90+-27k. With PXMS = 0.18 the search window now
+    // reaches 176 px for a 900 ms hold, so the 162 px alias is inside it and the tie-break, which
+    // aims at the camera's lag midpoint (CAM_MS), has to pick the truth. My sprite itself travels
+    // at 0.18 px/ms; the 90 px here is scenery scroll, which lags behind that.
     const a = Buffer.alloc(646 * 520 * 4);
     for (let y = 0; y < 520; y++) for (let x = 0; x < 646; x++) {
       const v = x % 27 < 4 ? 200 : 120, p = (y * 646 + x) * 4;
@@ -1066,6 +1089,18 @@ function selftest() {
     }
     const down = classifyShift(a, downed, 'down', 400, [0, 0]);
     ok(Math.abs(down.dy - 36) <= 4, `a 400 ms down hold must read as ~36 px, got dy ${down.dy}`);
+  }
+  {
+    // A frame where my sprite cannot be located (standing on scenery that shares its colour class)
+    // must not freeze the map. The whole-window align still says how far the camera scrolled, so
+    // my world position has to follow that scroll; three `nudge` calls in a row stalled this way on
+    // the plateau and left the recorded position ~330 px behind where the shot showed me.
+    const r = { grid: new Uint8Array(GW * GH), meta: { cam: [0, 0], me: [300, 200], world: [300, 213], align: { dx: 0, dy: 0, cost: 0 } } };
+    const d = foldStep(r, { me: null, a: { dx: -40, dy: 0, cost: 3 } });
+    ok(Math.abs(d - 40) < 1e-6, `an unlocatable-sprite step must still record 40 px of travel, got ${d.toFixed(1)}`);
+    ok(Math.round(r.meta.world[0]) === 260, `my world position must follow the scroll, got world x ${r.meta.world[0]}`);
+    ok(r.meta.me[0] === 300, 'the last located screen position must be carried, not discarded');
+    ok(r.meta.lastOff[0] === -40, 'the measured scroll must survive as the next step baseline');
   }
   {
     // raised brick walls are the same purple as the floor; only the mortar lines tell them
@@ -1491,7 +1526,7 @@ function walk(mode, steps) {
     // zero progress at the end). Aim at half the remaining distance, floor just above key granularity.
     const ms = press ? pressMs : Math.max(35, Math.min(150, Math.round((path.length * CELL) / PXMS / 2)));
     let res = step(r, dir, ms);
-    if (res.moved < 6 && !res.lost && !res.fade && !res.transition) {
+    if (res.moved < 6 && !res.fade && !res.transition) {
       // the game pauses when its window loses focus: a zero move is not evidence of a wall
       // until the key has provably landed, and marking a fake wall poisons the map
       refocus(); sleep(250);

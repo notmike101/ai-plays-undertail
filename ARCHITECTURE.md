@@ -267,3 +267,30 @@ node src/harness.mjs                                 # sidecar (ws on 127.0.0.1:
   `(97,44,97)`, red hedge `(232,35,19)`/`(128,17,17)` - all OTH, i.e. unnameable, so they stay UNKNOWN
   and `passable()` probes them rather than me guessing a class). `tmp_crop.mjs out.png x0 y0 x1 y1
   [scale]` zooms a window of a frame so sprites, decals and sign glyphs are legible.
+
+### Two different numbers were hiding in one constant
+- **My sprite travels at 0.18 px/ms; the scenery scrolls slower than that.** Measured separately, on
+  purpose: `logs/tmp_rate.mjs` walks a fixed hold and reads **my sprite position** before/after (in the
+  Ruins rooms the whole room fits the window, so the camera never scrolls and this is the only honest
+  measurement) - three 500 ms and two 1000 ms holds gave 0.174-0.189 px/ms. `src/motion.mjs match`
+  measures the **scenery** instead, and gave ~90 px for a 900 ms hold because the overworld camera
+  LERPS: it is still catching up when the key is released, and in a small room it never moves at all.
+- `PXMS = 0.18` is now the single physical speed (the physics bound in `step()`, the press-length
+  calculation). `CAM_MS = 0.10` is only where `align()` aims its search. They were the same constant
+  before, which is how a previous session "re-measured" 0.10: `align()` built its candidate window as
+  `[0 .. exp + 14]` with `exp = ms * PXMS`, so with 0.10 a real 160 px scroll was **outside the search
+  space** and every reading confirmed the constant. The window now spans `[0 .. ms*PXMS + 14]`, and
+  the selftest's stripe case checks that the 27 px-pattern alias at 162 px is inside that window and
+  still loses to the true 90 px shift.
+- `motion.mjs` has exactly two verbs: `match` and `files`. There is **no `measure` verb**; unknown
+  arguments fall through to "park a grab", which is what made an earlier measurement look like a result.
+- `playerPosFrom` consumes a **raw 646x520 BGRA buffer**, never a PNG. Feeding it a PNG file returns
+  null for every frame and proves nothing; a check of that kind must grab with
+  `play.mjs raw grab logs/x.bin` first. (All four facings were then tested live: hair blob n 1284 /
+  952 / 732 / 732, so side-facing sprites are not the detection gap people assumed.)
+- A step whose sprite cannot be located no longer returns `{lost}` and freezes the bookkeeping.
+  `foldStep()` (pure, now selftested) folds the measured camera scroll into `cam`/`world` either way,
+  so the position follows the evidence instead of sitting at the last located sprite: three `nudge`
+  calls in a row on the plateau had reported `{"lost":true}` while the shot showed I had crossed 330 px.
+  `step()` still reports `lost: true` so the caller can settle the sprite, and the feet disc is stamped
+  at the scroll-implied position - an estimate bounded by the physics check, not a guess.
