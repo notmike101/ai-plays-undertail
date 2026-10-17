@@ -1107,7 +1107,10 @@ function walk(mode, steps) {
       console.log(`step ${i}: no path from ${cur} to ${tgx},${tgy}`);
       break;
     }
-    const next = path[1] || path[0];
+    // Aim about 8 cells along the route rather than at the adjacent waypoint: waypoints are one
+    // cell apart, so any deadband reads "arrived" on every step and any 1-cell position jitter
+    // reads as a sideways command. A lookahead point is the direction I actually need.
+    const next = path[Math.min(path.length - 1, 8)];
     // Offsets of 1-2 cells are noise at my step size (the shortest controllable hold is ~6 px =
     // 3 cells). Treating them as a sideways command made the walker shuffle left/right forever
     // beside a target instead of closing the 12-cell gap north of it. Ignore sub-step offsets and
