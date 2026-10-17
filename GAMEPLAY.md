@@ -421,3 +421,34 @@ results. No engine internals, no outside walkthroughs.
   no channel in it, so it is not a signature of the puzzle room and cannot be used to name one.
 - The grey wall plaque has never been read from true adjacency: my `z` presses there were taken while
   facing away or about 245 px off. "Plaques have no text" is therefore still unproven.
+
+### The floor star is the save point, and it names the room I am standing in (run 1)
+- Standing at the north edge of the leaf-bordered square and facing north, `z` produced
+  `* ( The shadow of the ruins / looms above, filling you with / determination. )` then
+  `* ( HP fully restored. )`; `z` again opened the save menu, which printed the location and saved:
+  `Ruins Entrance` / `File saved.` (`evidence/run1/35_save_point_names_this_room_ruins_entrance.png`).
+- So the room with the octagonal **pale plateau**, the two pale **stair fans**, the **red hedge block**
+  in the middle and the **leaf-bordered square** on the floor IS the **"Ruins - Entrance"** room - the
+  same save point found in session 1. `evidence/run1/36_ruins_entrance_room_leaf_square_hedge_plateau.png`.
+- That settles where the save reload left me: at that save point. Everything mapped earlier (octagon,
+  corridor, channel, statue, ledge, twin rooms) is **ahead** of me on this run, not behind it, so this
+  run has to walk the route again rather than resume inside it.
+- The save point is a flat yellow four-point star painted on the floor. It is only interactive from
+  adjacency **while facing it**: the first `z` (facing south, away from it) produced nothing; facing
+  north gave the flavour text. "No text from a floor marking" is a facing/distance claim, not a property
+  of the marking - the same mistake that made the grey plaques look unreadable.
+- This is the first NAMEPLATE-shaped fact of the run: a save point is what names a room here. No
+  standalone room sign has been seen anywhere yet.
+
+### The game instance changed under me and the map believed it (run 1)
+- A 200-step frontier walk pinned itself to one cell for 25 steps, every step reporting `moved 0px` and
+  `foreground was not the game window -> already foreground: 0x67716`. Cause: UNDERTALE.exe is now
+  **pid 1332 / window 0x67716**; the instance I had been driving (pid 12320 / window 0x5505054) was
+  closed when the save was reloaded. The bridge kept capturing the dead window, so the frames were
+  byte-identical and the walk recorded walls at my feet.
+- VOID: every "0 px move" from that walk (steps 1-27, ~7 recorded walls around cell 1010,644). The grid
+  generation was discarded with `slam init`.
+- Rule this installs: identity of the target window is part of the observation. `play.mjs find`
+  (hwnd + pid) has to match what was captured last before any zero-move may be called a wall; a
+  foreground that belongs to a *different* window than the capture window means the loop is severed,
+  not that geography is.

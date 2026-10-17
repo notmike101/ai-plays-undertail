@@ -32,5 +32,10 @@ witnessed.
   this room" re-fires when I enter a room inside her trigger zone - it fired in a room with no puzzle
   furniture in it - so it is not a route fork and records nothing about which route I am on. The channel
   room's crossing remains unsolved, which is the only in-game gate I have hit so far.
+- 2026-10-17: the operator reloaded from the **"Ruins - Entrance"** save, so run 1 is back at that save
+  point and every room mapped further along has to be walked again. I re-opened the save point there
+  (`z` facing it): `* ( The shadow of the ruins ... )`, `* ( HP fully restored. )`, then
+  `Ruins Entrance` / `File saved.` (`evidence/run1/35_*`). No route-relevant choice was made: still
+  LV 1, HP restored to 20/20, 0 EXP, no monster killed, nothing skipped.
 - Nothing here is claimed as an ending; the table above stays empty until one is
   witnessed end to end.

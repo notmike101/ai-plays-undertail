@@ -1,5 +1,25 @@
 # Progress
 
+## Status (2026-10-17, session 4): back at the Ruins - Entrance save point on a new game instance
+- The instance being played changed mid-session: UNDERTALE.exe is now **pid 1332 / window 0x67716**
+  (the operator reloaded from the save). pid 12320 / window 0x5505054 is gone. A 200-step frontier walk
+  burned 27 steps against the dead capture window; all of its zero-moves and recorded walls are VOID and
+  the grid generation was discarded (`slam init`).
+- Tooling fixes landed and pushed, all with the failure that produced them: `PXMS` re-measured
+  0.18 -> **0.10 px/ms** (plus a selftest case that fails on the old value), `motion.mjs`'s maxshift
+  argument bug (its documented invocation never ran), `tools/refocus.ps1` for stolen foreground
+  (never minimizes OBS), `slam nudge` as an in-mapper walkability probe, `roomN-fit.png`, and the
+  `tmp_palette.mjs` / `tmp_crop.mjs` census helpers.
+- **Room named from in-game text:** the room with the pale octagonal plateau, two stair fans, red hedge
+  block and leaf-bordered square is **"Ruins - Entrance"** - its floor star is the SAVE POINT
+  (`z` while facing it: shadow-of-the-ruins flavour, `HP fully restored.`, then `Ruins Entrance` /
+  `File saved.`). Evidence `run1/35_*`, `run1/36_*`.
+- Consequence for the run: everything mapped earlier (octagon / corridor / channel / statue / ledge /
+  twin rooms) is ahead of me again, so the route must be walked, not resumed. Toriel is not in view in
+  this room.
+- Open: whether the two pale stair fans climb onto the plateau (colour alone says nothing; both are
+  UNKNOWN and must be walked), and what the red hedge block and grey wall face hide.
+
 ## Status (2026-10-17, session 3): the walker can cross the Ruins brick bridge
 - `selftest` green. Pushed this session: thin brick (`f1980ee`), `legalAim` (`ebe3d49`), the smear
   guard and its retry bar (`0633f18`, `71704a2`), repair-before-finish plus `plankGoal` compactness
