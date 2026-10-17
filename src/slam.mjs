@@ -496,6 +496,9 @@ function winOf(cam) {
   return [x0, x1, y0, y1];
 }
 
+// The inverse of the paint mapping: which camera would put cell (gx, gy) at the frame centre.
+function camOfCell(gx, gy) { return [2 * (gx - GOX) - (CX0 + CX1) / 2, 2 * (gy - GOY) - (CY0 + CY1) / 2]; }
+
 const THIN = new Uint8Array(GW * GH);
 function thinBrick(r, cam) {
   const [x0, x1, y0, y1] = winOf(cam);
@@ -1277,6 +1280,14 @@ function walk(mode, steps) {
     else if (mode.startsWith('to')) target = cellOf(Number(mode.split(' ')[1]), Number(mode.split(' ')[2]));
     if (!target) { console.log('no reachable target for ' + mode); saveRoom(r); return; }
     tgx = target[0]; tgy = target[1];
+    // A route exists precisely to cross bands that are nowhere near the camera, and the band passes
+    // only see their own window: the walk could not plan through a gate 245 cells east because
+    // nothing had ever examined it. Sweep the straight line from me to the goal so the gate is at
+    // least considered - my body still decides, and a false band only costs three strikes on one edge.
+    for (let t = 0; t <= 1.001; t += 0.25) {
+      const c1 = camOfCell(start[0] + (tgx - start[0]) * t, start[1] + (tgy - start[1]) * t);
+      thinBrick(r, c1); thinDark(r, c1);
+    }
   }
   console.log(`walk ${mode}: cell ${start} -> ${tgx},${tgy}`);
   let blocked = 0, stuckEvents = 0, dialogEvents = 0;
