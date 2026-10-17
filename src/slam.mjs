@@ -1038,7 +1038,11 @@ function walk(mode, steps) {
     const dx = Math.sign(next[0] - cur[0]), dy = Math.sign(next[1] - cur[1]);
     const dir = dx > 0 ? 'right' : dx < 0 ? 'left' : dy > 0 ? 'down' : dy < 0 ? 'up' : null;
     if (!dir) { console.log(`step ${i}: arrived at ${cur}`); break; }
-    const ms = Math.max(90, Math.min(150, Math.round((path.length * CELL) / PXMS))); // hold sized to the distance still to go
+    // The hold must not overshoot what is left to walk. 90 ms is 16 px = 32 cells, while arrival
+    // counts as within 3 cells (6 px): at path lengths of 28-40 cells the walker sailed past the
+    // target on every step and ping-ponged left/right for hundreds of steps (walk23, 800 steps,
+    // zero progress at the end). Aim at half the remaining distance, floor just above key granularity.
+    const ms = Math.max(35, Math.min(150, Math.round((path.length * CELL) / PXMS / 2)));
     let res = step(r, dir, ms);
     if (res.moved < 6 && !res.lost && !res.fade && !res.transition) {
       // the game pauses when its window loses focus: a zero move is not evidence of a wall
