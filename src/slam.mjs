@@ -439,11 +439,16 @@ function flood(r, start) {
   return REACH_T.length;
 }
 
-// The farthest unexplored cell I can actually get within 6 px of, measured by real walking
-// distance through this room rather than by crow-flies distance.
+// The unexplored cell I can get within 6 px of, measured by real walking distance through this
+// room rather than by crow-flies distance. Farthest-first was wrong on its own: the farthest cell
+// sits ~560 cells away, painting reclassifies it long before I arrive, and the walk spent 20
+// retargets per 300 steps without ever entering the corridor straight ahead. So: the farthest
+// target I can actually finish (within FRONTIER_CAP of walking), and only if none is close
+// enough, the farthest one there is.
+const FRONTIER_CAP = 200; // cells of walking: one 150 ms hold covers ~13, so ~15 steps to arrive
 function pickFrontier(r, cur, tried) {
   flood(r, cur);
-  let best = null;
+  let best = null, bestNear = null;
   for (let gy = 1; gy < GH - 1; gy++) {
     for (let gx = 1; gx < GW - 1; gx++) {
       const i = gidx(gx, gy);
@@ -465,13 +470,16 @@ function pickFrontier(r, cur, tried) {
         if (v >= 0) { ad = dd; d = v; }
       }
       if (ad > 3) continue;
-      if (!best || d + ad > best.d) best = { t: [gx, gy], d: d + ad };
+      const dn = d + ad;
+      if (!best || dn > best.d) best = { t: [gx, gy], d: dn };
+      if (dn <= FRONTIER_CAP && (!bestNear || dn > bestNear.d)) bestNear = { t: [gx, gy], d: dn };
     }
   }
-  if (!best) return null;
-  const p = bfs(r, cur, best.t);
-  if (!p || p.length <= 10) { tried.add(best.t[0] + ',' + best.t[1]); return pickFrontier(r, cur, tried); } // closer than one key hold - that is how the sawing started
-  return { t: best.t, path: p };
+  const chosen = bestNear || best; // a finishable target beats the farthest one on the map
+  if (!chosen) return null;
+  const p = bfs(r, cur, chosen.t);
+  if (!p || p.length <= 10) { tried.add(chosen.t[0] + ',' + chosen.t[1]); return pickFrontier(r, cur, tried); } // closer than one key hold - that is how the sawing started
+  return { t: chosen.t, path: p };
 }
 
 function plankGoal(r) {
@@ -830,8 +838,15 @@ function selftest() {
     const r6 = { grid: new Uint8Array(GW * GH), meta: { cam: [0, 0], trail: [] } };
     for (let y = 508; y <= 513; y++) for (let x = 700; x <= 1100; x++) r6.grid[gidx(x, y)] = FLOOR;
     const p = pickFrontier(r6, [720, 510], new Set());
-    ok(p && p.t[0] > 1040, `the far unexplored edge behind the old search window was not picked (${p ? p.t : 'none'})`);
-    ok(p && p.path.length > 320, `the route to it was not the long way around (${p && p.path.length})`);
+    ok(p && p.path.length <= FRONTIER_CAP + 30, `the walker picked a target it cannot finish in one go (${p && p.path.length})`);
+    ok(p && p.t[0] > 870, `the capped pick did not head for unexplored ground (${p ? p.t : 'none'})`);
+    // ... and nothing gets abandoned: once the reachable edge is tried, the far edge is still taken.
+    const tried = new Set();
+    for (let x = 700; x <= 950; x++) { tried.add(x + ',507'); tried.add(x + ',514'); }
+    for (let y = 505; y <= 517; y++) { tried.add('699,' + y); tried.add('698,' + y); }
+    const q = pickFrontier(r6, [720, 510], tried);
+    ok(q && q.t[0] > 1040, `with the near edge tried, the far edge behind me was abandoned (${q ? q.t : 'none'})`);
+    ok(q && q.path.length > 320, `the route to the far edge was not the long way around (${q && q.path.length})`);
   }
   {
     // A room I have completely painted has no UNKNOWN left, yet its way out is drawn as a black
