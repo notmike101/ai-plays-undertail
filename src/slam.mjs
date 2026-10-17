@@ -1059,6 +1059,8 @@ function walk(mode, steps) {
   console.log(`walk ${mode}: cell ${start} -> ${tgx},${tgy}`);
   let blocked = 0, stuckEvents = 0, dialogEvents = 0;
   const strikes = new Map();
+  const pressTries = new Map(); // black gaps get escalating holds, not wall marks
+  let pressMs = 0;
   r.veto = new Set(r.meta.veto || []);
   let prev = null; // the route I am committing to, so two equal detours cannot alternate
   for (let i = 0; i < steps; i++) {
@@ -1086,7 +1088,16 @@ function walk(mode, steps) {
     // Press into the gap instead: a failed step records the wall, a good one walks me through
     // the doorway (and the loop's own fade/transition handling takes it from there).
     const press = path !== null && path.length <= 10 && r.grid[gidx(tgx, tgy)] === VOID;
-    if (press) path = [cur, [tgx, tgy]];
+    if (press) {
+      path = [cur, [tgx, tgy]];
+      // A black doorway is not a wall: a short press stops at the threshold and I back off. Each
+      // retry holds the key longer (250, 500, 750 ms ...) so a doorway gets progressively harder
+      // attempts instead of the same polite knock forever.
+      const pk = tgx + ',' + tgy;
+      const t = (pressTries.get(pk) || 0) + 1;
+      pressTries.set(pk, t);
+      pressMs = Math.min(1500, 250 * t);
+    }
     if (!path || (path.length <= 10 && !press)) {
       if (mode === 'frontier') {
         if (process.env.TRACE) console.log(`  ${path ? 'short path ' + path.length : 'NO ROUTE'} from ${cur} (cell ${r.grid[gidx(cur[0], cur[1])]}) to ${tgx},${tgy} (cell ${r.grid[gidx(tgx, tgy)]})`);
@@ -1152,7 +1163,7 @@ function walk(mode, steps) {
     // counts as within 3 cells (6 px): at path lengths of 28-40 cells the walker sailed past the
     // target on every step and ping-ponged left/right for hundreds of steps (walk23, 800 steps,
     // zero progress at the end). Aim at half the remaining distance, floor just above key granularity.
-    const ms = Math.max(35, Math.min(150, Math.round((path.length * CELL) / PXMS / 2)));
+    const ms = press ? pressMs : Math.max(35, Math.min(150, Math.round((path.length * CELL) / PXMS / 2)));
     let res = step(r, dir, ms);
     if (res.moved < 6 && !res.lost && !res.fade && !res.transition) {
       // the game pauses when its window loses focus: a zero move is not evidence of a wall
@@ -1251,13 +1262,22 @@ function walk(mode, steps) {
       }
     }
     if (res.moved < 6) {
-      markBlocked(r, cur, dir);
-      // The same move failing over and over is not bad luck: walk21 spent 41 re-targets pressing
-      // right into the ledge lip at 1066,820 because every replan found a route through the fan of
-      // cells around it. Three strikes and this exact move is off the routing graph.
-      const key = `${cur[0]},${cur[1]}|${dir}`;
-      strikes.set(key, (strikes.get(key) || 0) + 1);
-      if (strikes.get(key) === 3) { r.veto.add(key); console.log(`step ${i}: ${dir} out of ${cur} failed three times, vetoed for the rest of this walk`); }
+      if (press) {
+        // A failed press into a black gap proves nothing about the geometry: markBlocked already
+        // refuses to overwrite VOID, and whole runs were spent repeating the same 35-150 ms knock
+        // on the same doorway (walk28/29). Spend neither a strike nor a wall mark on it.
+        const pk = tgx + ',' + tgy;
+        if ((pressTries.get(pk) || 0) >= 4) { tried.add(pk); console.log(`step ${i}: the black gap at ${pk} resisted four presses; it stays black, moving on`); }
+        else console.log(`step ${i}: the black gap resisted; not painting a wall there (press ${pressTries.get(pk)} of 4)`);
+      } else {
+        markBlocked(r, cur, dir);
+        // The same move failing over and over is not bad luck: walk21 spent 41 re-targets pressing
+        // right into the ledge lip at 1066,820 because every replan found a route through the fan of
+        // cells around it. Three strikes and this exact move is off the routing graph.
+        const key = `${cur[0]},${cur[1]}|${dir}`;
+        strikes.set(key, (strikes.get(key) || 0) + 1);
+        if (strikes.get(key) === 3) { r.veto.add(key); console.log(`step ${i}: ${dir} out of ${cur} failed three times, vetoed for the rest of this walk`); }
+      }
     }
     blocked = res.moved < 6 ? blocked + 1 : 0;
     console.log(`step ${i}: ${dir} moved ${res.moved.toFixed(0)}px -> world ${r.meta.world.map(Math.round)} blocked=${blocked} path=${path.length}`);
