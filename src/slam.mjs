@@ -1641,4 +1641,34 @@ if (cmd === 'init') {
   const after = r.grid.reduce((a, v) => a + (v === BRICK || v === VOID ? 1 : 0), 0);
   saveRoom(r);
   console.log(`room ${r.s.room}: seams cleaned, ${before - after} impassable cells relieved because my feet were on them`);
+} else if (cmd === 'reach') {
+  // Why does a route not exist? Flood with exactly the gates bfs uses, then show what stopped it:
+  // the reached cell closest to the goal, and what the four cells in front of it look like.
+  const r = loadRoom();
+  const t = cellOf(Number(process.argv[3]), Number(process.argv[4]));
+  const start = cellOf(...r.meta.world);
+  for (let s = 0; s <= 1.001; s += 0.2) {
+    const c1 = camOfCell(start[0] + (t[0] - start[0]) * s, start[1] + (t[1] - start[1]) * s);
+    thinBrick(r, c1); thinDark(r, c1);
+  }
+  const CL = ['UNKNOWN', 'FLOOR', 'LIGHT', 'VOID', 'WATER', 'SPIKE', 'WOOD', 'VINE', 'PROVEN', 'OTH', 'BLOCKED', 'BRICK'];
+  const seen = new Set([gidx(start[0], start[1])]);
+  const q = [start];
+  let best = start, bd = Math.abs(start[0] - t[0]) + Math.abs(start[1] - t[1]);
+  for (let h = 0; h < q.length; h++) {
+    const [x, y] = q[h];
+    const d = Math.abs(x - t[0]) + Math.abs(y - t[1]);
+    if (d < bd) { bd = d; best = [x, y]; }
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const nx = x + dx, ny = y + dy, ni = gidx(nx, ny);
+      if (nx < 1 || nx >= GW - 1 || ny < 1 || ny >= GH - 1 || seen.has(ni)) continue;
+      if (!passable(r, nx, ny) || !bodyFit(r, nx, ny)) continue;
+      seen.add(ni); q.push([nx, ny]);
+    }
+  }
+  console.log(`flood ${seen.size} cells; closest to goal ${best} (${bd} away)`);
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    const nx = best[0] + dx, ny = best[1] + dy, i2 = gidx(nx, ny);
+    console.log(`  ${dx},${dy} ${CL[r.grid[i2]] || '?'} THIN=${THIN[i2]} passable=${passable(r, nx, ny)} bodyFit=${bodyFit(r, nx, ny)}`);
+  }
 }
