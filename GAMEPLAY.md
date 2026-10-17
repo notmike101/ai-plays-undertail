@@ -483,3 +483,18 @@ results. No engine internals, no outside walkthroughs.
   Nothing yet links them to the channel room, and I have read no label on any stone.
 - Caution earned: a **room change happened between two of my key presses** and only the following
   frame revealed it. The eye does not track rooms; the identity matcher has to.
+### The six stones are not switches and not obstacles - I walked through them (run 1)
+- Hypothesis retracted: the six grey stones in the ring room are **floor decals**. Holding right from
+  feet x 412 travelled 412 -> 454 -> 490 -> 526, straight across the drawn bodies of three of them,
+  and what finally stopped me was the room's **east wall** at x 538. My drawn body (34 px wide) also
+  overlaps a stone's drawn box while standing beside it. The drawn sprite is not the collider.
+- They are **unlabelled** at 6x too: flat grey cobbles with a maroon top edge and a black drop shadow,
+  no strokes anywhere on them. So the "labelled switches" the sign promises are still unidentified,
+  and the ring is scenery.
+- What this rules out matters for the puzzle: the switches are not the obvious objects in this room.
+  Remaining candidates from what I have actually seen: the plank over the channel in the vine room,
+  the grey plaques, and whatever is behind the faced door (never entered).
+- General rule this earns, and it is now enforced in the mapper rather than in my attention: **a colour
+  may call a cell unknown, never solid.** Only a step that physically failed may call a cell a wall.
+  Every "solid" claim in this run that was based on colour alone has since been contradicted by walking
+  - the leaf block, the channel water, and now these stones.

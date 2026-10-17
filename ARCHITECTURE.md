@@ -294,3 +294,25 @@ node src/harness.mjs                                 # sidecar (ws on 127.0.0.1:
   calls in a row on the plateau had reported `{"lost":true}` while the shot showed I had crossed 330 px.
   `step()` still reports `lost: true` so the caller can settle the sprite, and the feet disc is stamped
   at the scroll-implied position - an estimate bounded by the physics check, not a guess.
+
+### Colour may call a cell unknown, never solid
+- The six ring cobbles are `rgb(192,192,192)`, which the colour test calls SPIKE - the same grey family
+  as the spike tiles. They were therefore obstacles in the map, and `bodyFit` vetoed every cell within
+  3 cells of one, which sealed off most of the room. Physical test: `tools/inset.mjs right 419 291 436 306`
+  walked my feet through the drawn body of a stone (`412 -> 454 -> 490 -> 526`) and only the room's east
+  wall stopped me; my 34 px-wide drawn body also overlaps a stone's drawn box while standing beside it.
+  **The drawn sprite is not the collider**, so no colour-derived class may be trusted as a wall.
+- Shape separates the two greys: `flatGrey(r)` marks a SPIKE run at least as wide as it is tall (the
+  cobbles are 28x16 px = 14x8 cells) as floor; a spike standing taller than wide (6x20 cells in the
+  selftest) keeps its solid verdict. `walkable`, `bodyFit` and `passable` consult `FLAT`.
+- `THIN` and `FLAT` are module scratch that only `paint()` used to rebuild, so `probe`, `reach` and
+  `walk "to"` - which flood without painting a frame - ran with **empty masks** and saw every thin brick
+  band, black gate and flat decal as solid. `loadRoom()` now runs `thinBrick` + `thinDark` + `flatGrey`;
+  "routable from me" went from 1 to 30787 cells in a room I had walked 151 steps around.
+- Pockets are repaired, not obeyed: standing 3 cells from a BRICK wall, `bodyFit` vetoed all four
+  directions and the walk quit with 58 routable cells in a 26802-cell room. `pickFrontier` now repairs
+  seams + footprints whenever the flood from my cell returns fewer than 400 cells (not only when there
+  is no frontier). The repair flag lived in the room's meta, so "repair once" meant once per room
+  **forever** and the next walk inherited `repairTried=1` and gave up at step 0; it is reset at the
+  start of every walk. (No synthetic case for this one: a mock world that reproduces it would be
+  testing the mock. It is verified live, on the room that triggered it.)

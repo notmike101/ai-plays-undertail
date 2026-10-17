@@ -710,7 +710,7 @@ function flood(r, start) {
 // enough, the farthest one there is.
 const FRONTIER_CAP = 200; // cells of walking: one 150 ms hold covers ~13, so ~15 steps to arrive
 function pickFrontier(r, cur, tried) {
-  flood(r, cur);
+  const reached = flood(r, cur);
   let best = null, bestNear = null;
   for (let gy = 1; gy < GH - 1; gy++) {
     for (let gx = 1; gx < GW - 1; gx++) {
@@ -739,23 +739,23 @@ function pickFrontier(r, cur, tried) {
     }
   }
   const chosen = bestNear || best; // a finishable target beats the farthest one on the map
-  if (!chosen) {
-    // Before a room is called finished, repair the picture with the evidence my own feet carry.
-    // walk36 quit at 104 steps with "nothing further reachable is unmapped"; running the same seam
-    // and footprint passes afterwards (slam clean) found a frontier 34 cells away - the last paints
-    // had stranded me in a pocket of cells painted solid under my own body.
-    if (!r.meta.repairTried) {
-      r.meta.repairTried = 1;
-      thinSeamsToFloor(r);
-      stoodRepair(r);
-      thinBrick(r, r.meta.cam || [0, 0]);
-      thinDark(r, r.meta.cam || [0, 0]);
-      flatGrey(r);
-      console.log('the map looked finished; repairing seams and footprints and looking again');
-      return pickFrontier(r, cur, tried);
-    }
-    return null;
+  // Footprint evidence outranks the painted picture. A room I have walked has tens of thousands of
+  // routable cells, so a flood returning a few hundred means the last paints stranded me in a pocket
+  // under my own body (standing 3 cells from a BRICK wall made bodyFit veto all four directions and
+  // the walk quit on the spot: 58 cells routable inside a 26802-cell room). Repair with the footprints
+  // and look again - once per WALK. The old flag lived in the room's meta, so "once" meant once per
+  // room forever and the very next walk inherited repairTried=1 and gave up immediately.
+  if (!r.meta.repairTried && (!chosen || reached < 400)) {
+    r.meta.repairTried = 1;
+    thinSeamsToFloor(r);
+    stoodRepair(r);
+    thinBrick(r, r.meta.cam || [0, 0]);
+    thinDark(r, r.meta.cam || [0, 0]);
+    flatGrey(r);
+    console.log(`${reached} cells routable${chosen ? '' : ' and no frontier'}; repairing seams and footprints and looking again`);
+    return pickFrontier(r, cur, tried);
   }
+  if (!chosen) return null;
   const p = bfs(r, cur, chosen.t);
   if (!p || p.length <= 10) { tried.add(chosen.t[0] + ',' + chosen.t[1]); return pickFrontier(r, cur, tried); } // closer than one key hold - that is how the sawing started
   return { t: chosen.t, path: p };
@@ -1434,6 +1434,7 @@ function walk(mode, steps) {
   if (s0) r.meta.prevBuf = s0.b;
   paint(r, r.meta.prevBuf, r.meta.cam); markRobe(r, r.meta.prevBuf, r.meta.cam); markFeet(r, r.meta.cam, me0);
   const start = cellOf(...r.meta.world);
+  r.meta.repairTried = 0; // once per WALK: the flag outliving a walk made the next one quit instantly
   const tried = new Set();
   let tgx = 0, tgy = 0;
   if (mode === 'frontier') {
