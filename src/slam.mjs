@@ -949,7 +949,7 @@ function walk(mode, steps) {
     tgx = target[0]; tgy = target[1];
   }
   console.log(`walk ${mode}: cell ${start} -> ${tgx},${tgy}`);
-  let blocked = 0, stuckEvents = 0;
+  let blocked = 0, stuckEvents = 0, dialogEvents = 0;
   for (let i = 0; i < steps; i++) {
     const cur = cellOf(...r.meta.world);
     let path = bfs(r, cur, [tgx, tgy]);
@@ -1067,8 +1067,22 @@ function walk(mode, steps) {
     if (res.moved < 6) {
       const t = boxText();
       if (t) {
+        dialogEvents++;
         console.log(`step ${i}: the game is talking, movement frozen: ${t.replace(/\n/g, ' ')}`);
         clearBox(r);
+        // Toriel re-opens the same line while I stand inside her trigger radius, so retrying the
+        // stuck direction just re-freezes me: walk18 spent 400 steps on one sentence on repeat.
+        // Break contact: step away from the direction I was pressing, then shuffle sideways.
+        const tries = [dir === 'right' ? 'left' : dir === 'left' ? 'right' : dir === 'up' ? 'down' : 'up',
+          dir === 'right' || dir === 'left' ? 'up' : 'left', dir === 'right' || dir === 'left' ? 'down' : 'right'];
+        let moved = 0;
+        for (const d2 of tries) {
+          const b2 = step(r, d2, 220);
+          if (b2.fade || b2.transition) { console.log(`step ${i}: the contact-break went ${d2} straight into a room change; ending the walk so the map stays honest`); i = steps; break; }
+          moved = b2.moved || 0;
+          if (moved >= 6) { console.log(`step ${i}: broke contact going ${d2}: ${moved.toFixed(0)}px`); break; }
+        }
+        if (moved < 6 && dialogEvents > 10) { console.log('an NPC has me pinned: nothing moves and the box keeps reopening'); break; }
         continue;
       }
     }
