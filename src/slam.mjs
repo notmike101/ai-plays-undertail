@@ -715,6 +715,18 @@ function step(r, dir, ms = 150) {
   const sm = [me.x - me0[0], me.y - me0[1]];
   const a = classifyShift(r.meta.prevBuf || b, b, dir, ms, sm);
   if (a.transition) return { transition: a.transition };
+  // Physics bound. My world position is cam + my screen position, so the camera shift plus my own
+  // screen motion has to add up to what the held key could actually move me. A 35 ms hold that
+  // reports 273 px is the align locking onto a copy of the repeating brick pattern several tiles
+  // away, and painting such a frame stamps a false patch of walked floor far from where I stand.
+  const phys = 1.25 * ms * PXMS + 8;
+  const claimed = Math.hypot(a.dx + sm[0], a.dy + sm[1]);
+  if (claimed > phys) {
+    console.log(`align claims ${Math.round(claimed)} px of travel from a ${ms} ms hold (max ${Math.round(phys)}): treating the camera as clamped`);
+    a.dx = 0; a.dy = 0;
+    // if my sprite anchor jumped by an impossible amount too, refuse the frame rather than smear it
+    if (Math.hypot(sm[0], sm[1]) > phys) return { lost: true };
+  }
   r.meta.lastOff = [a.dx, a.dy];
   r.meta.cam = [before[0] + a.dx, before[1] + a.dy];
   const d = Math.hypot(r.meta.cam[0] + me.x - (before[0] + me0[0]), r.meta.cam[1] + me.y - (before[1] + me0[1]));
