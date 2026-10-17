@@ -188,7 +188,7 @@ async function exec(msg) {
       // capture the settled page's text so nothing has to be read off a picture
       const texts = [];
       for (const p of out) {
-        const d = await bridgeT('dump ' + p + ' ' + OCRBIN, 20000);
+        const d = await bridgeT('dump ' + resolve(p) + ' ' + OCRBIN, 20000);
         texts.push(d.ok ? readText(fs.readFileSync(OCRBIN), d.w, d.h, msg.set || 'dialog') : '');
       }
       return { ok: true, pages: out, texts };

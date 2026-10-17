@@ -40,12 +40,14 @@ export function analyze(buf, W, H) {
   }
 
   // connected components of the remaining ink
-  const comps = [];
   const lab = new Int32Array(N).fill(-1);
   const stack = new Int32Array(N);
   const alive = (p) => p >= 0 && p < N && lum(p) > 128 && !dead[p];
-  for (let i = 0; i < N; i++) {
-    if (!alive(i)) continue;
+  const collect = () => {
+    const comps = [];
+    lab.fill(-1);
+    for (let i = 0; i < N; i++) {
+      if (!alive(i)) continue;
     const px = [];
     let top = 0;
     stack[top++] = i; lab[i] = comps.length;
@@ -67,17 +69,26 @@ export function analyze(buf, W, H) {
       if (y < miny) miny = y; if (y > maxy) maxy = y;
     }
     comps.push({ px, minx, maxx, miny, maxy });
+    }
+    return comps;
+  };
+  // sprites / portraits are blobs; blank their whole box, then look again so
+  // their inner details cannot masquerade as glyphs
+  let comps = collect();
+  for (const c of comps) {
+    if (c.maxx - c.minx <= 24 && c.maxy - c.miny <= 24 && c.px.length <= 300) continue;
+    for (let y = c.miny; y <= c.maxy; y++) for (let x = c.minx; x <= c.maxx; x++) dead[y * W + x] = 1;
   }
-
-  // sprites / portraits: big blobs, and nothing counts inside their box
-  const big = comps.filter((c) => c.maxx - c.minx > 24 || c.maxy - c.miny > 24 || c.px.length > 300)
-    .map((c) => [c.minx, c.maxx, c.miny, c.maxy]);
-  const insideSprite = (c) => big.some((B) =>
-    (c.minx + c.maxx) / 2 > B[0] - 2 && (c.minx + c.maxx) / 2 < B[1] + 2 &&
-    (c.miny + c.maxy) / 2 > B[2] - 2 && (c.miny + c.maxy) / 2 < B[3] + 2);
+  comps = collect();
 
   const ylo = Number(process.env.OCR_YMIN || 0), yhi = Number(process.env.OCR_YMAX || 1e9);
-  let glyphs = comps.filter((c) => c.maxx - c.minx <= 24 && c.maxy - c.miny <= 24 && c.px.length >= 8 && !insideSprite(c) && c.maxy >= 40 && c.miny >= ylo && c.maxy <= yhi);
+  // font-sized only: this font sits in a 16x21 box (dots are the tiny case),
+  // which is what separates glyphs from sprite scraps
+  const fontSized = (c) => {
+    const w = c.maxx - c.minx + 1, h = c.maxy - c.miny + 1;
+    return c.px.length >= 8 && (h <= 6 && w <= 6 ? true : h >= 8 && h <= 21 && w <= 16);
+  };
+  let glyphs = comps.filter((c) => fontSized(c) && c.maxy >= 40 && c.miny >= ylo && c.maxy <= yhi);
 
   // join fragments of one glyph (dot of an i): nearest pair first, so unrelated
   // ink elsewhere in the frame cannot change how a glyph is assembled
@@ -110,6 +121,25 @@ export function analyze(buf, W, H) {
     else groups.set(r, { px: g.px, minx: B[0], maxx: B[1], miny: B[2], maxy: B[3] });
   });
   glyphs = [...groups.values()];
+  // text sits on a baseline in clusters; stray ink (box corners, sprite debris)
+  // has no neighbour glyph next to it
+  const p2 = glyphs.map((_, i) => i);
+  const find2 = (i) => (p2[i] === i ? i : (p2[i] = find2(p2[i])));
+  for (let a = 0; a < glyphs.length; a++) {
+    for (let b = a + 1; b < glyphs.length; b++) {
+      const A = glyphs[a], B = glyphs[b];
+      const yov = Math.min(A.maxy, B.maxy) - Math.max(A.miny, B.miny);
+      const xgap = Math.max(A.minx - B.maxx, B.minx - A.maxx);
+      if (yov >= 2 && xgap <= 22) p2[find2(b)] = find2(a);
+    }
+  }
+  const clusters = new Map();
+  glyphs.forEach((g, i) => {
+    const r = find2(i), c = clusters.get(r);
+    if (c) { c.n++; c.minx = Math.min(c.minx, g.minx); c.maxx = Math.max(c.maxx, g.maxx); }
+    else clusters.set(r, { n: 1, minx: g.minx, maxx: g.maxx });
+  });
+  glyphs = glyphs.filter((g) => { const c = clusters.get(find2(glyphs.indexOf(g))); return c && c.n >= 2 && c.maxx - c.minx >= 24; });
   const key = (c) => {
     const rows = [];
     for (let y = c.miny; y <= c.maxy; y++) {
@@ -145,7 +175,8 @@ export function readText(buf, W, H, set = 'dialog') {
   const T = loadGlyphs()[set] || {};
   const { lines, key } = analyze(buf, W, H);
   return lines.filter((L) => L.g.length >= 2 && L.maxy - L.miny >= 6)
-    .map((L) => render(L, T, key)).filter((s) => s.replace(/[?\s]/g, '').length > 0).join('\n');
+    .map((L) => render(L, T, key).replace(/^[\s?]+/, '').replace(/[\s?]+$/, ''))
+    .filter((s) => s.length > 0).join('\n');
 }
 
 export function trainLine(buf, W, H, set, text, lineIdx = 0) {

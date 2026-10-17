@@ -1,4 +1,5 @@
+ocr/*.bin
+ocr/l.json
+logs/
 node_modules/
-src/bridge/bridge.exe
-build.rsp
-logs/frames/
+logs/ocr/*.bin
