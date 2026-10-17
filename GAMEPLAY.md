@@ -226,3 +226,17 @@ results. No engine internals, no outside walkthroughs.
 - Still unanswered, and the thing to test next once I am back: whether Toriel moves when
   I leave her room and come back. She blocked the plank, offered no dialogue and did not
   move for 48 s while I watched her.
+
+### My colour legend was wrong again, and how I fixed the method (run 1)
+- I had recorded the pale rounded shapes (185,98,185) as raised, un-walkable ledges. While
+  positioning with the new mapper I sampled pixels all around my own sprite and got
+  (185,98,185) at (300,300), (340,300), (280,300) and (320,340) while I was standing there -
+  so that colour is walkable floor drawn in a lighter shade, not a wall. The darker purples
+  are floor too. In this art style colour alone cannot tell floor from wall.
+- What actually settles it: the tiles I have physically stood on (recorded as PROVEN), the
+  hazard colours that are unambiguous (black void, the blue pool, green vines, grey spike
+  tiles), and every direction I tried and failed to walk in (recorded as a tested wall).
+- Method change, so this does not happen a third time: navigation now runs off a persistent
+  picture-based map (`src/slam.mjs`) that matches one capture to the next to get the exact
+  camera shift, remembers the room between runs, and plans a route instead of poking at
+  directions and hoping. Maps are saved as `logs/map/roomN.png`.

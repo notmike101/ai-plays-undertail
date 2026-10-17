@@ -90,3 +90,30 @@ node src/harness.mjs                                 # sidecar (ws on 127.0.0.1:
 - `dodge` sees only blobs inside the battle box.
 - Bridge restart requires killing the harness (it owns the child and exits with
   it; file lock on bridge.exe).
+
+## Persistent world map - `src/slam.mjs`
+
+- Consecutive captures are matched by an integer pixel-offset search over the window
+  (coarse step 4 over +-56 px, then refine +-4 px around the ten best). The winning offset
+  is the camera displacement, so `world = camera + my on-screen anchor`; a camera that is
+  clamped at a room edge no longer looks like a wall, which is what my earlier dead-reckoning
+  walkers kept getting wrong.
+- Anti-aliasing, because the Ruins brick pattern repeats every ~32 px and a plain
+  best-match happily locks onto a shifted copy of itself: the walker tells `align` which key
+  it pressed and candidates implying backwards motion are dropped; near-ties prefer the
+  smallest shift; the previous offset is kept (hysteresis) unless another beats it by 25 %.
+- One grid per room: `logs/map/roomN.bin` is a raw `Uint8Array` (1 cell = 2 capture px,
+  1600x1000 canvas), `roomN.json` holds the camera, my world position and my trail,
+  `current.json` the room index, `prev.bin` the last frame so alignment survives between
+  runs. `roomN.png` is written by a small stdlib zlib PNG writer so I can look at the map.
+- What counts as solid: only colour-exact hazards (void, water, vine, spike tiles) and cells
+  the walker physically failed to enter (`BLOCKED`). Unnameable pixels are never painted, and
+  my sprite plus any robed NPC are masked out of painting - painting my own body fenced me
+  inside a fake obstacle field. Cells I have stood on are recorded as `PROVEN`, which is the
+  strongest walkability evidence there is.
+- Room change = align cost above 45, or a frame more than 60 % dark (the transition fade);
+  the old room is saved, the index increments, and the new room starts with a fresh grid.
+- Navigation: BFS on the grid, re-planned every step, one 90-150 ms key hold per step
+  (~20-45 px), hold shortened near the goal so I stop instead of oscillating past it. A
+  byte-identical frame after a key hold means the game paused when its window lost focus, so
+  the step pulls the window to the foreground and presses again.
