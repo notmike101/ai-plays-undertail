@@ -618,21 +618,25 @@ function markBlocked(r, cell, dir) {
     r.grid[i] = BLOCKED;
   }
 }
-// A message box covers my sprite, so "player not found" is normally the game talking to me and
-// not a dead end: print what it says, advance it with the ordinary confirm key, and only give up
-// once the box refuses to close.
+// A message box freezes my movement, and my sprite stays perfectly visible behind it, so the box
+// is detected by its TEXT, not by the player going missing. walk18 and walk19 burned 411 steps
+// reading "* There is another puzzle in this room. . ." over and over because this function bailed
+// out as soon as it saw my sprite and never pressed the confirm key at all.
 function boxText() { try { return (JSON.parse(execFileSync('node', ['src/play.mjs', 'text'], { stdio: 'pipe' }).toString()).text || '').trim(); } catch { return ''; } }
 function clearBox(r) {
-  const t = boxText();
-  if (t) console.log(`on screen: ${t.replace(/\n/g, ' ')}`);
-  for (let k = 0; k < 8; k++) {
-    const b = grab();
-    const p = playerPosFrom(b);
-    if (p) { r.meta.prevBuf = b; return p; }
+  let last = '';
+  for (let k = 0; k < 12; k++) {
+    const t = boxText();
+    if (!t) break; // nothing on screen: the box is closed (or there never was one)
+    if (t !== last) console.log(`on screen: ${t.replace(/\n/g, ' ')}`);
+    last = t;
     sh(['press', 'z']);
     sleep(450);
   }
-  return null;
+  const b = grab();
+  const p = playerPosFrom(b);
+  if (p) r.meta.prevBuf = b;
+  return p;
 }
 
 // one verified step; returns how far my world position actually moved
