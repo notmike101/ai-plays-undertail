@@ -26,5 +26,11 @@ witnessed.
 - Consequence seen on screen: LV stays 1, HP back to 20/20, no monsters killed by
   me. Toriel reacts warmly to following instructions ("I am proud of you, little
   one."), so the route I am on is at least consistent with what she asks.
+- Run 1, later: I explored five connected Ruins rooms (octagon, corridor, channel room, statue room,
+  ledge/twin rooms) and never saw a save point, a room NAMEPLATE, or a single encounter in them; HP 20/20,
+  LV 1, 0 EXP still. Toriel follows the player and walks ahead, and her line "* There is another puzzle in
+  this room" re-fires when I enter a room inside her trigger zone - it fired in a room with no puzzle
+  furniture in it - so it is not a route fork and records nothing about which route I am on. The channel
+  room's crossing remains unsolved, which is the only in-game gate I have hit so far.
 - Nothing here is claimed as an ending; the table above stays empty until one is
   witnessed end to end.
