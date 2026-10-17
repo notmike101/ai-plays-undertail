@@ -149,6 +149,15 @@ node src/harness.mjs                                 # sidecar (ws on 127.0.0.1:
   whole cells, at least 8 matches and 55 % of the smaller set required. A match reloads that
   grid and puts me on the cell the landmarks say I landed on; only real disagreement starts a
   new room number. That is what stops re-entering a corridor from minting room 4, 5, 6...
+- Scenery shift and my own screen motion are two halves of one truth: on flat, featureless
+  floor the pixel cost is flat at every offset, so the tie-break toward the commanded shift won
+  even when the camera had clamped at a room edge and only my sprite moved. That counted my
+  movement twice and stretched the map 2x (vine columns 205 px apart on screen, 410 px apart on
+  the grid), which also folded two real rooms into one grid. `align` therefore takes `sm` (my
+  anchor's screen movement) and drops any candidate offset that would imply I travelled further
+  than the speed model allows for that hold; the held axis is searched from 0 (camera clamped)
+  to the commanded shift plus slack. Speed re-measured from the frame: a wall vine patch slid
+  588 -> 264 px over 1800 ms of held key = 0.183 px per ms, matching `PXMS = 0.18`.
 - Navigation: BFS on the grid, re-planned every step, one 90-150 ms key hold per step
   (~15-27 px). A byte-identical frame after a key hold means the game paused when its window
   lost focus, so the step pulls the window to the foreground and presses again before the

@@ -250,7 +250,7 @@ results. No engine internals, no outside walkthroughs.
   200 ms right-holds moved my sprite 0 px while a down hold in the same second moved 98 px,
   `z`/`enter` appended nothing to `logs/dialog.jsonl`, and her box held [360,300,390,352]
   over 30 s of sampling.
-- The rest of the "circling" was my map lying to the route planner, four times over, and each
+- The rest of the "circling" was my map lying to the route planner, five times over, and each
   lie was visible in `logs/map/roomN.png` once I looked instead of guessing:
   1. A mid-room step was filed as a room change. The planner scored "did the picture change"
      by the *average* pixel difference; the pool ripples and the spike tiles inflate that
@@ -273,6 +273,20 @@ results. No engine internals, no outside walkthroughs.
      was on the far side of a brick wall. The walker then announced "nothing left to map" in
      a room with a third of it still blank. One flood over the whole grid now measures how
      far each unexplored cell actually is by walking.
-- Method note to self: when the walker claims a room is finished, check the map file and the
-  reachability count (`slam probe`), not the feeling. "No path" is a claim about my graph,
-  and three of these four bugs were only findable that way.
+  5. My position advanced twice as fast as I walked. Over flat floor the pixel cost is flat
+     at every offset, so the tie-break toward the commanded shift won even when the camera had
+     clamped at a room edge and only my sprite moved - the scenery shift and my screen motion
+     were both counted. Proof was a ruler, not a test: the two vine columns on the wall are
+     205 px apart on screen and came out 410 px apart on the map. `align` now takes my screen
+     motion as a constraint - scenery shift plus screen motion is how far I travelled, and a
+     key hold cannot exceed the speed model, which I re-measured against the frame (a vine
+     patch slid 588 -> 264 px over 1800 ms of held key = 0.183 px per ms, so 0.18 holds).
+- Still open: two real rooms got stitched into one grid, because entering the flat pale-blob
+  room produced no dark fade frame I happened to sample, and a featureless room keeps the
+  mean-pixel test below threshold. The map showed it: one 2000 px band with a doorway arch in
+  the middle. Next check, with the scale fixed: whether the paint contradicts the grid at the
+  crossing (floor where the old room had a wall), which would be a detector that needs no fade.
+- Method note to self: when the walker claims a room is finished, or a map merely looks
+  plausible, measure something - the reachability count (`slam probe`), or one known distance
+  in the frame against the same distance on the grid. Every one of these bugs was invisible in
+  the code and obvious in a measurement.
