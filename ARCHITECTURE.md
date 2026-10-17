@@ -93,27 +93,43 @@ node src/harness.mjs                                 # sidecar (ws on 127.0.0.1:
 
 ## Persistent world map - `src/slam.mjs`
 
-- Consecutive captures are matched by an integer pixel-offset search over the window
-  (coarse step 4 over +-56 px, then refine +-4 px around the ten best). The winning offset
-  is the camera displacement, so `world = camera + my on-screen anchor`; a camera that is
-  clamped at a room edge no longer looks like a wall, which is what my earlier dead-reckoning
-  walkers kept getting wrong.
-- Anti-aliasing, because the Ruins brick pattern repeats every ~32 px and a plain
-  best-match happily locks onto a shifted copy of itself: the walker tells `align` which key
-  it pressed and candidates implying backwards motion are dropped; near-ties prefer the
-  smallest shift; the previous offset is kept (hysteresis) unless another beats it by 25 %.
+- Frame geometry first: `raw grab` is 646x520 RGBA (1343680 bytes), rows 0-37 are the window
+  title bar. The sampling window is x 2-641, y 40-515. A window that ran to x=759 read past
+  the end of every row and wrapped into the next one, which smeared the map and offset it 133
+  cells east of my real position; that one constant caused the days of "walking in circles".
+  `selftest` now asserts the window fits the frame and excludes the title bar.
+- Consecutive captures are matched by a pixel-offset search restricted to +-12 px around the
+  shift the walker commanded (`expected = 0.18 px per ms of held key`). The winning offset is
+  the camera displacement, so `world = camera + my on-screen anchor` and the collision point is
+  `anchor.y + 13` (the feet, not the hair).
+- Anti-aliasing: the Ruins brick pattern repeats every ~32 px, so the search window is kept
+  smaller than that period instead of trusting a global best match. Tie-breaks toward the
+  commanded shift apply only inside `best + 1.5` absolute cost; outside that band the strict
+  minimum wins, so a clamped camera (cost ~0) is never reported as a move.
 - One grid per room: `logs/map/roomN.bin` is a raw `Uint8Array` (1 cell = 2 capture px,
   1600x1000 canvas), `roomN.json` holds the camera, my world position and my trail,
   `current.json` the room index, `prev.bin` the last frame so alignment survives between
   runs. `roomN.png` is written by a small stdlib zlib PNG writer so I can look at the map.
-- What counts as solid: only colour-exact hazards (void, water, vine, spike tiles) and cells
-  the walker physically failed to enter (`BLOCKED`). Unnameable pixels are never painted, and
-  my sprite plus any robed NPC are masked out of painting - painting my own body fenced me
-  inside a fake obstacle field. Cells I have stood on are recorded as `PROVEN`, which is the
-  strongest walkability evidence there is.
-- Room change = align cost above 45, or a frame more than 60 % dark (the transition fade);
-  the old room is saved, the index increments, and the new room starts with a fresh grid.
+- What counts as solid: void, water, vine, spike tiles, cells the walker physically failed to
+  enter (`BLOCKED`), and raised brick walls. A wall is the same purple as the floor - the only
+  tell is the mortar colour (132,53,125), 22 % of a wall's pixels and 0 % of walkable floor -
+  so `paint` counts mortar per cell and sums it over the 3x3 neighbourhood (>= 14 means wall),
+  which turns the lined texture into one solid mass instead of a porous dither. `WOOD` is
+  exempt, because the plank I have to carry is brown with a dark outline.
+- Sprites are painted out, but only the parts that lie: the blue dress box under my anchor and
+  a size-checked NPC robe (the brickwork shares the robe colour, so an unbounded colour bbox
+  punched half a room of holes). My head and hair classify as unnameable and are dropped
+  anyway. Masking the whole body leaves an UNKNOWN hole the size of the sprite, and BFS only
+  steps a cell or two into unknown ground, so that hole sealed every room around me;
+  `markFeet` therefore claims the feet row (~19x6 cells) as `PROVEN` - the ground my sprite
+  stands on, which the camera cannot see. A failed step overwrites `PROVEN` with `BLOCKED`.
+- Frontier targets are UNKNOWN cells adjacent to known floor, farthest first, and a candidate
+  is only accepted if BFS has a real path longer than one key hold (~10 cells); otherwise the
+  walker overshoots the target and saws left/right over the same tile.
+- Room change = align cost above 45, or a frame more than 60 % dark (the transition fade); the
+  old room is saved, the index increments, and the new room waits up to ~12 s for the fade to
+  finish before starting a fresh grid - giving up earlier strands an unpainted room.
 - Navigation: BFS on the grid, re-planned every step, one 90-150 ms key hold per step
-  (~20-45 px), hold shortened near the goal so I stop instead of oscillating past it. A
-  byte-identical frame after a key hold means the game paused when its window lost focus, so
-  the step pulls the window to the foreground and presses again.
+  (~15-27 px). A byte-identical frame after a key hold means the game paused when its window
+  lost focus, so the step pulls the window to the foreground and presses again before the
+  zero-move is believed as a wall.

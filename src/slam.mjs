@@ -228,7 +228,9 @@ function markFeet(r, cam, me) {
     const [gx, gy] = cellOf(wx + dx * CELL, wy + dy * CELL);
     if (gx < 0 || gx >= GW || gy < 0 || gy >= GH) continue;
     const i = gidx(gx, gy), v = r.grid[i];
-    if (v === VOID || v === BRICK || v === WATER || v === VINE || v === SPIKE) continue;
+    // BLOCKED belongs here: without it the feet band re-claims the very cells the failed
+    // step just walled off, and BFS replans the same blocked direction forever
+    if (v === VOID || v === BRICK || v === WATER || v === VINE || v === SPIKE || v === BLOCKED) continue;
     r.grid[i] = PROVEN;
   }
   r.meta.trail.push([Math.round(wx), Math.round(wy)]);
@@ -261,6 +263,17 @@ function walkable(r, gx, gy) {
   if (c[BLOCKED] >= 3) return false;
   return WALK.has(top);
 }
+const SOLID = new Set([VOID, WATER, VINE, SPIKE, BLOCKED, BRICK]);
+// My collision box is ~16 px = 8 cells across. Point pathing happily threads a 1-2 cell
+// crack that my body cannot enter, which is how the walker pressed right into a wall over
+// and over: BFS had a route, the game said no. Refuse any cell with ground I know is solid
+// within 3 cells sideways - unknown ground is still allowed, that is how I discover edges.
+function bodyFit(r, gx, gy) {
+  for (const [dx, dy] of [[3, 0], [-3, 0], [0, 3], [0, -3]]) {
+    if (SOLID.has(r.grid[gidx(gx + dx, gy + dy)])) return false;
+  }
+  return true;
+}
 
 const PREV = new Int32Array(GW * GH).fill(-2);
 const QUEUE = new Int32Array(600000);
@@ -279,7 +292,7 @@ function bfs(r, start, goal, cap = 500000) {
       if (nx < 1 || nx >= GW - 1 || ny < 1 || ny >= GH - 1) continue;
       const ni = gidx(nx, ny);
       if (PREV[ni] !== -2) continue;
-      if (!passable(r, nx, ny)) continue;
+      if (!passable(r, nx, ny) || !bodyFit(r, nx, ny)) continue;
       PREV[ni] = cur; touched.push(ni); QUEUE[tail++] = ni;
       if (tail >= cap) break;
     }
@@ -355,11 +368,18 @@ const sameFrame = (A, B) => {
 // a failed step is the only real proof of a wall in this art style
 function markBlocked(r, cell, dir) {
   const d = { right: [1, 0], left: [-1, 0], down: [0, 1], up: [0, -1] }[dir];
-  for (let s = 4; s <= 7; s++) for (let w = -1; w <= 1; w++) {
+  // A zero-move step means the obstacle is at my collision box EDGE, about 8 px (4 cells)
+  // ahead of my centre - and 1 cell marks crowd the 3x3 majority of the cell I am standing
+  // on, which made my own tile read solid. So the mark spans the body edge outward, and it
+  // may overwrite PROVEN, the assumption about the ground under my sprite. It previously
+  // started 4 cells in and skipped PROVEN, so four "recorded walls" recorded nothing and
+  // BFS replanned the identical route.
+  for (let s = 4; s <= 16; s++) for (let w = -3; w <= 3; w++) {
     const gx = cell[0] + d[0] * s + (d[0] ? 0 : w), gy = cell[1] + d[1] * s + (d[1] ? 0 : w);
     if (gx < 1 || gx >= GW - 1 || gy < 1 || gy >= GH - 1) continue;
     const i = gidx(gx, gy);
-    if (r.grid[i] !== PROVEN) r.grid[i] = BLOCKED;
+    if (r.grid[i] === VOID || r.grid[i] === BLOCKED) continue;
+    r.grid[i] = BLOCKED;
   }
 }
 
@@ -488,11 +508,25 @@ function selftest() {
   const path = bfs(r, [795, 500], [825, 500]);
   ok(path && path.some((c) => c[1] >= 515), 'bfs did not route around the tested wall');
   ok(!(path && path.some((c) => c[0] >= 809 && c[0] <= 811 && c[1] <= 513)), 'bfs walked through a tested wall');
-  const r2 = { grid: new Uint8Array(GW * GH), meta: {} };
+  const r2 = { grid: new Uint8Array(GW * GH), meta: { cam: [0, 0], trail: [] } };
   for (let y = 490; y <= 520; y++) for (let x = 790; x <= 830; x++) r2.grid[gidx(x, y)] = FLOOR;
   markBlocked(r2, [800, 500], 'right');
-  ok(!walkable(r2, 806, 500), 'a failed step right did not leave a tested wall in front of me');
+  ok(!walkable(r2, 810, 500), 'a failed step right did not leave a tested wall in front of me');
   ok(walkable(r2, 800, 500), 'markBlocked poisoned the cell I am standing on');
+  ok(walkable(r2, 802, 500), 'markBlocked reached inside my own collision box');
+  // the next frame re-marks the ground under my sprite; that must not undo a wall I have
+  // physically walked into, or BFS replans the same blocked direction forever
+  markFeet(r2, [0, 0], { x: 0, y: -FEET });
+  ok(!walkable(r2, 806, 500), 'the feet band erased a wall I had physically tested');
+  ok(walkable(r2, 800, 500), 'the feet band erased the cell I am standing on');
+  {
+    // a 4-cell (8 px) crack in a tested wall: point pathfinding threads it, my 16 px body
+    // does not fit, and that is exactly the route that made the walker press into a wall
+    const r3 = { grid: new Uint8Array(GW * GH), meta: { cam: [0, 0], trail: [] } };
+    for (let y = 480; y <= 530; y++) for (let x = 780; x <= 840; x++) r3.grid[gidx(x, y)] = FLOOR;
+    for (let y = 480; y <= 530; y++) if (y < 498 || y > 501) for (let w = 0; w <= 1; w++) r3.grid[gidx(810 + w, y)] = BLOCKED;
+    ok(!bfs(r3, [795, 500], [825, 500]), 'bfs planned through a crack my collision box cannot fit');
+  }
   console.log('selftest ok: align anti-aliasing, bfs routing around tested walls, blocked marking');
 }
 
@@ -529,18 +563,22 @@ function walk(mode, steps) {
         tried.add(tgx + ',' + tgy);
         const p = pickFrontier(r, cur, tried);
         if (!p) {
-          // one wrong "wall" (a paused window, a camera clamp) can disconnect a whole room,
-          // so before declaring it finished, test whether my recorded walls are the cause
-          let cleared = 0;
-          for (let k = 0; k < r.grid.length; k++) if (r.grid[k] === BLOCKED) { r.grid[k] = UNKNOWN; cleared++; }
-          const q = cleared ? pickFrontier(r, cur, tried) : null;
-          if (q) {
-            tgx = q.t[0]; tgy = q.t[1];
-            console.log(`step ${i}: my ${cleared} recorded walls disconnected the room - clearing them, retarget ${tgx},${tgy}`);
-            continue;
+          // NEVER mass-delete BLOCKED: a cleared cell turns UNKNOWN, which is not walkable,
+          // so wiping the walls disconnects the room worse than a wrong wall did. The only
+          // honest second chance is the tried-set, which records "no path back then".
+          if (tried.size === 0) {
+            console.log(`step ${i}: nothing further reachable is unmapped; room ${r.s.room} is walked out`);
+            break;
           }
-          console.log(`step ${i}: nothing further reachable is unmapped; room ${r.s.room} is walked out`);
-          break;
+          tried.clear();
+          const q = pickFrontier(r, cur, tried);
+          if (!q) {
+            console.log(`step ${i}: nothing further reachable is unmapped; room ${r.s.room} is walked out`);
+            break;
+          }
+          tgx = q.t[0]; tgy = q.t[1];
+          console.log(`step ${i}: retried the whole frontier list, retarget ${tgx},${tgy}`);
+          continue;
         }
         tgx = p.t[0]; tgy = p.t[1];
         console.log(`step ${i}: new frontier target ${tgx},${tgy} (path ${p.path.length})`);
