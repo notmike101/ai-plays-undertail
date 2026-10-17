@@ -1061,6 +1061,17 @@ function walk(mode, steps) {
       r.meta.world = [r.meta.cam[0] + p.x, r.meta.cam[1] + p.y + FEET];
       continue;
     }
+    // A message box freezes my movement: the key lands, the sprite does not move. Believing that
+    // as a wall paints false obstacles - walk17 recorded four wall fans while Toriel was
+    // mid-sentence. Read the box, advance it, and let the next iteration try the step again.
+    if (res.moved < 6) {
+      const t = boxText();
+      if (t) {
+        console.log(`step ${i}: the game is talking, movement frozen: ${t.replace(/\n/g, ' ')}`);
+        clearBox(r);
+        continue;
+      }
+    }
     if (res.moved < 6) markBlocked(r, cur, dir);
     blocked = res.moved < 6 ? blocked + 1 : 0;
     console.log(`step ${i}: ${dir} moved ${res.moved.toFixed(0)}px -> world ${r.meta.world.map(Math.round)} blocked=${blocked} path=${path.length}`);
@@ -1071,7 +1082,9 @@ function walk(mode, steps) {
       stuckEvents++;
       blocked = 0;
       console.log(`stuck at cell ${cur} heading ${dir}: recorded a wall, re-targeting (attempt ${stuckEvents})`);
-      if (stuckEvents > 3 || mode !== 'frontier') break;
+      // the tried-set and pickFrontier guarantee progress, so this ceiling only needs to stop a
+      // true infinite loop; a fixed 4 ended a 300-step walk that was still finding new ground.
+      if (stuckEvents > Math.max(4, Math.floor(steps / 10)) || mode !== 'frontier') break;
       tried.add(tgx + ',' + tgy);
       const p = pickFrontier(r, cellOf(...r.meta.world), tried);
       if (!p) { console.log('no other frontier is reachable from here'); break; }
