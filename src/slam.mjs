@@ -76,7 +76,7 @@ function samp(A, B, dx, dy) { // [mean luma delta, badly mismatched samples, sam
 }
 const cost = (A, B, dx, dy) => samp(A, B, dx, dy)[0];
 const badFrac = (A, B, dx, dy) => { const [m, bad, n] = samp(A, B, dx, dy); return bad / (n || 1); };
-function align(A, B, dir = null, ms = 150) {
+function align(A, B, dir = null, ms = 150, sm = null) {
   const c0 = cost(A, B, 0, 0);
   if (c0 < 2) return { dx: 0, dy: 0, cost: c0 };
   const pool = [];
@@ -84,7 +84,25 @@ function align(A, B, dir = null, ms = 150) {
   if (dir) {
     const u = UNIT[dir];
     exp = [Math.round(u[0] * ms * PXMS), Math.round(u[1] * ms * PXMS)];
-    for (let dy = -12; dy <= 12; dy++) for (let dx = -12; dx <= 12; dx++) pool.push([exp[0] + dx, exp[1] + dy, cost(A, B, exp[0] + dx, exp[1] + dy)]);
+    // The held axis may have scrolled the scenery anywhere between 0 (camera clamped at the
+    // room edge) and the commanded shift plus slack; the perpendicular axis barely moves.
+    const ax = u[0] !== 0 ? 0 : 1;
+    for (let p = -3; p <= 3; p++) {
+      for (let a = Math.min(-2, exp[ax]); a <= Math.max(2, exp[ax]) + 14; a++) {
+        const dx = ax === 0 ? a : p, dy = ax === 1 ? a : p;
+        pool.push([dx, dy, cost(A, B, dx, dy)]);
+      }
+    }
+    // Physics: my on-screen movement plus the scenery shift is how far I actually travelled,
+    // and one key hold cannot exceed the speed model. Over featureless floor the pixel cost is
+    // flat, so the tie-break happily chose the commanded shift even when the camera had CLAMPED
+    // at the room edge and only my sprite moved - that double-counted my position and stretched
+    // the map until two vine columns 205 px apart on screen sat 410 px apart on the grid.
+    if (sm) {
+      const maxMove = 1.15 * ms * PXMS;
+      const ok = pool.filter((c) => Math.abs(c[0] + sm[0]) + Math.abs(c[1] + sm[1]) <= maxMove);
+      if (ok.length) { pool.length = 0; pool.push(...ok); }
+    }
   } else {
     const cands = [];
     for (let dy = -56; dy <= 56; dy += 4) for (let dx = -56; dx <= 56; dx += 4) cands.push([dx, dy, cost(A, B, dx, dy)]);
@@ -129,8 +147,8 @@ function wideAlign(A, B) {
 // A real room change replaces the scenery, so almost every sample mismatches even at the best
 // offset. Animated water and spikes (and a camera scroll that outran the window) only inflate
 // the mean, which is how a mid-room step in the pool room got logged as a room change.
-function classifyShift(A, B, dir, ms) {
-  const a = align(A, B, dir, ms);
+function classifyShift(A, B, dir, ms, sm = null) {
+  const a = align(A, B, dir, ms, sm);
   if (a.cost <= 45) return { ...a, transition: 0 };
   const w = wideAlign(A, B);
   if (badFrac(A, B, w.dx, w.dy) > 0.45) return { dx: w.dx, dy: w.dy, cost: w.cost, transition: w.cost };
@@ -560,12 +578,16 @@ function step(r, dir, ms = 150) {
     b = grab();
   }
   if (dark(b) > 0.6) return { fade: true };
-  const a = classifyShift(r.meta.prevBuf || b, b, dir, ms);
+  const me = playerPosFrom(b);
+  if (!me) return { lost: true };
+  // My own screen motion is the only thing that separates "the camera scrolled" from "the
+  // camera clamped at the room edge and I walked instead"; align() cannot tell the two apart
+  // over flat featureless floor, and getting it wrong doubles my recorded position.
+  const sm = [me.x - me0[0], me.y - me0[1]];
+  const a = classifyShift(r.meta.prevBuf || b, b, dir, ms, sm);
   if (a.transition) return { transition: a.transition };
   r.meta.lastOff = [a.dx, a.dy];
   r.meta.cam = [before[0] + a.dx, before[1] + a.dy];
-  const me = playerPosFrom(b);
-  if (!me) return { lost: true };
   const d = Math.hypot(r.meta.cam[0] + me.x - (before[0] + me0[0]), r.meta.cam[1] + me.y - (before[1] + me0[1]));
   r.meta.me = [me.x, me.y];
   r.meta.world = [r.meta.cam[0] + me.x, r.meta.cam[1] + me.y + FEET];
@@ -655,6 +677,21 @@ function selftest() {
       other[p] = v; other[p + 1] = v; other[p + 2] = v; other[p + 3] = 255;
     }
     ok(classifyShift(base, other, 'right', 150).transition > 0, 'a replaced frame was not seen as a room change');
+    // The scale bug, in the exact conditions that caused it: scenery whose pixel cost is flat
+    // over a shift of one commanded step (brick/stripes repeat), plus an animated patch, plus
+    // a camera that had CLAMPED so only my sprite moved. The tie-break then chose the
+    // commanded shift and my recorded position advanced twice as fast as I walked.
+    const stripes = Buffer.alloc(646 * 520 * 4);
+    for (let y = 0; y < 520; y++) for (let x = 0; x < 646; x++) {
+      const v = x % 27 < 4 ? 200 : 120, p = (y * 646 + x) * 4;
+      stripes[p] = v; stripes[p + 1] = v >> 1; stripes[p + 2] = v; stripes[p + 3] = 255;
+    }
+    const rippled = Buffer.from(stripes);
+    for (let y = 200; y < 260; y++) for (let x = 120; x < 320; x++) { const p = (y * 646 + x) * 4; rippled[p] = rippled[p + 1] = rippled[p + 2] = 250; }
+    const clamped = classifyShift(stripes, rippled, 'right', 150, [27, 0]);
+    ok(Math.abs(clamped.dx) <= 6, `a clamped camera was read as a ${clamped.dx} px scenery scroll (this stretched the map 2x)`);
+    const free = classifyShift(stripes, rippled, 'right', 150, [0, 0]);
+    ok(free.dx >= 20, `my sprite did not move, so the scenery should count as scrolled (dx ${free.dx})`);
   }
   {
     // raised brick walls are the same purple as the floor; only the mortar lines tell them
