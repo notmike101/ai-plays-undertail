@@ -1,5 +1,32 @@
 # Progress
 
+## Status (2026-10-17, session 2): the map is now something I can remember
+- `src/slam.mjs` is the mapper and route planner: capture window x 2..641, y 40..515 (the
+  window title bar is outside it), a 2 px-per-cell grid per room, colour classes (floor, pale
+  floor, void, water, spike tiles, plank, vine, ground I have stood on, tested wall, raised
+  brick) decided by a 3x3 majority per cell. `walk frontier N` explores, `walk "to x y" N`
+  goes somewhere specific, and `png` / `show` / `probe` / `clean` inspect the result.
+  Maps: `logs/map/roomN.{bin,json,png}`.
+- Navigation faults found from the saved maps rather than guessed, each with a selftest
+  regression: raised brick painted as floor (mortar count); my sprite hiding the ground under
+  it (feet band); tested walls erased by the next frame; `bfs` threading 1-2 cell cracks my
+  collision box cannot enter (`bodyFit`); a mid-room step logged as a room change (animated
+  water inflates the mean pixel cost - a transition is now decided by the fraction of badly
+  mismatched samples, with a wide coarse-to-fine search to recover a camera scroll that
+  outran the align window); the floor tiles' 1-2 px black seams painted as pits, which sliced
+  corridors in half (`thinSeamsToFloor`, `slam clean`); `bfs` refusing wall-hugging goals
+  (arrival is now within 6 px of the target); and the frontier list searching only +-320
+  cells around me, so the unexplored edge behind me was never a candidate - one reachability
+  flood now ranks unexplored cells by real walking distance.
+- Room identity: every room stores a landmark-offset signature (walls, water, spikes, planks,
+  vines) relative to the cell under my feet, which the camera cannot change. On a transition
+  the new signature is matched against every saved room - translation hypothesised from spread
+  landmark pairs, hill-climbed whole cells, 55% of the smaller set must agree. A match reuses
+  that grid and places me on the cell the landmarks say I landed on; only real disagreement
+  starts a new room number.
+- `node src/slam.mjs selftest` runs the regressions: align anti-aliasing, transition
+  classifier, seam cleanup, bfs arrival, frontier reach, blocked marking, room identity.
+
 ## Status (2026-10-16, session 1)
 - Loop works end to end: attach -> capture -> input -> capture -> verify, plus
   automatic text capture.
@@ -47,7 +74,12 @@
 - Plank/water/spike room: read the wall plaque there - "* The western room is the
   eastern room s blueprint." - and the frogger path (three dashes, four dashes) got me
   onto the brown plank, where Toriel blocks the near end and no dialogue is offered.
-  I did not cross.
+  I did not cross, and she is a static obstacle rather than a dialogue trigger: six
+  focused 200 ms right-holds moved me 0 px (a down hold in the same second moved 98 px),
+  `z` and `enter` added nothing to `logs/dialog.jsonl`, and her on-screen box held
+  [360,300,390,352] across 30 s of sampling. Water north, spike tiles south, the planks
+  starting on the tile under her feet - that room has exactly one other connection: the
+  doorway I came in through.
 - Wandering east/south from there opened a neighbouring room: brick ledges, two vine
   walls, black pits, and no water, plank or Toriel in view. My screen-coordinate
   bookkeeping went wrong there - the camera clamps at a room's edges, so "no movement"
@@ -58,8 +90,10 @@
 - Full dialogue record: `logs/dialog.jsonl` (copied to `evidence/run1/`).
 
 ## Next actions
-1. Get back to Toriel's room through doorways rather than by wandering; when she blocks
-   a route, try leaving the room and coming back before assuming the route is closed.
+1. Walk out of the plank room through the doorway behind me - the reachability flood now
+   targets cell 800,596 there, a 432-cell route the old frontier list could not see - and
+   confirm the signature match reuses the room I already mapped instead of minting a new
+   number. Then look for the unexplored exits of the earlier rooms.
 2. Keep reading every page: the watcher logs all of them; check
    `tail -1 logs/dialog.jsonl` after each confirm press.
 3. Save at each save point; record the room name it shows.

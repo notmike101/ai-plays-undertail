@@ -240,3 +240,39 @@ results. No engine internals, no outside walkthroughs.
   picture-based map (`src/slam.mjs`) that matches one capture to the next to get the exact
   camera shift, remembers the room between runs, and plans a route instead of poking at
   directions and hoping. Maps are saved as `logs/map/roomN.png`.
+
+### I was walking in circles because my own map kept cutting its corridors (run 1)
+- What the screen showed at the end of that walk: a raised brick wall, a black pit, a blue
+  pool with brown planks laid over it, a bed of grey spike tiles, the plaque I read, and
+  Toriel standing on the western end of the planks facing me. North of her is water, south of
+  her are the spike tiles, and the planks begin on the tile under her feet, so she is not a
+  guard I can slip past - she *is* the exit. She never spoke and never walked: six focused
+  200 ms right-holds moved my sprite 0 px while a down hold in the same second moved 98 px,
+  `z`/`enter` appended nothing to `logs/dialog.jsonl`, and her box held [360,300,390,352]
+  over 30 s of sampling.
+- The rest of the "circling" was my map lying to the route planner, four times over, and each
+  lie was visible in `logs/map/roomN.png` once I looked instead of guessing:
+  1. A mid-room step was filed as a room change. The planner scored "did the picture change"
+     by the *average* pixel difference; the pool ripples and the spike tiles inflate that
+     average on their own, and a camera scroll bigger than the +-12 px search window makes
+     every offset look wrong. One mapped room was thrown away this way. A room change now has
+     to mismatch *most* samples, and a wide search recovers the scroll.
+  2. Coming back through a doorway started a brand new grid (room 4, 5, 6...). I was
+     literally re-mapping the same corridor and calling it new. Each room now carries the
+     offsets of its scenery relative to the cell under my feet - the one thing the camera
+     cannot change - and a matching signature reuses the grid and my landing cell.
+  3. The floor tiles are drawn with 1-2 px black seams, and black is what my mapper calls
+     VOID, the same label a real pit gets. My own body-size rule refuses to path within 3
+     cells of known solid, and the gaps between seams are 6-7 cells, so the seams sliced
+     every corridor into sealed pockets: 18.7k routable cells existed, none of them reachable
+     from the rest of the room. Seams thinner than 4 cells in either direction are now floor;
+     the 16x16 black pit east of the planks survives, which the selftest checks.
+  4. The frontier list only looked +-320 cells around me and ranked by straight-line
+     distance. The unexplored edge was *behind* me - the side I had already walked away from,
+     where the doorway out is - so it was never a candidate, and every candidate it did try
+     was on the far side of a brick wall. The walker then announced "nothing left to map" in
+     a room with a third of it still blank. One flood over the whole grid now measures how
+     far each unexplored cell actually is by walking.
+- Method note to self: when the walker claims a room is finished, check the map file and the
+  reachability count (`slam probe`), not the feeling. "No path" is a claim about my graph,
+  and three of these four bugs were only findable that way.
