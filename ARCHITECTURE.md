@@ -228,3 +228,10 @@ node src/harness.mjs                                 # sidecar (ws on 127.0.0.1:
   I came to claim Toriel paces when she had not moved a tile in 24 s. And `OTH` blobs are not furniture -
   my sprite's face is yellow, so a line of yellow along the trail is my own footsteps; I read that as
   floor pressure plates.
+- `src/motion.mjs` answers the one question my eye kept getting wrong: did this box of the frame move, and
+  by how much. It grabs a raw frame, runs an action, grabs again, and reports the offset that best
+  re-aligns a region of the first frame inside the second (`match x0 y0 x1 y1 [maxshift] [cmd...]`, or
+  `files a.bin b.bin ...` for saved grabs). Run it over a fixed wall and over the object of interest: the
+  object's real motion is the difference between the two offsets, which is the only way I have to tell a
+  scrolled camera from a moved sprite. It reuses slam.mjs's torn-grab test after my own version - sampling
+  four pixels per row - declared every healthy frame smeared.
