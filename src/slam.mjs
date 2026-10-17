@@ -539,7 +539,7 @@ function matchRoom(land, rooms) {
 const roomCatalog = () => fs.readdirSync(DIR)
   .map((f) => /^room(\d+)\.json$/.exec(f))
   .filter(Boolean)
-  .map((m) => { const j = JSON.parse(fs.readFileSync(`${DIR}/${m[1]}.json`)); return { room: +m[1], anchor: j.anchor, land: j.land, total: j.land ? j.land.length : 0 }; });
+  .map((m) => { const j = JSON.parse(fs.readFileSync(`${DIR}/room${m[1]}.json`)); return { room: +m[1], anchor: j.anchor, land: j.land, total: j.land ? j.land.length : 0 }; });
 
 const sameFrame = (A, B) => {
   if (!A || A.length !== B.length) return false;
