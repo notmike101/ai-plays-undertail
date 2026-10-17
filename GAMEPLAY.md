@@ -198,3 +198,31 @@ results. No engine internals, no outside walkthroughs.
   press. My position is now measured as (my sprite - the plank's brown tiles), which
   survives the camera, and the harness waits 150 ms after a key hold because the
   captured frame lags the key presses (without that wait real moves read as blocked).
+
+### Wandering into the next room, and walking in a loop (run 1)
+- I left the plank room by walking west/south and ended up in a neighbouring room: brick
+  ledges with bright tops, a long brick wall along the north edge with two vine-covered
+  sections, and black pits between the ledges. No water, no plank, no Toriel in view.
+- The wall along the north edge has no gap in it: from under it I walked 800 px east and
+  the walk simply stopped at the east end, so there is no doorway on that side.
+- The south side of that room is a set of very narrow paths - about 17 screen pixels wide,
+  while my own sprite's box is about 16 - so entering one needs an alignment of a few
+  pixels. One tap of a direction key moves me ~27 px, and holding two keys at once (down
+  plus right, both held) did not slide me into the gap either. I stopped there instead of
+  forcing it, because nothing in that room asks to be read: no plaque, no NPC, no item.
+- My own bookkeeping error, recorded so I do not repeat it: at a room edge the camera
+  stops, so my on-screen coordinate freezing can mean "camera clamped" and not "wall".
+  Twice I concluded a route was closed from a frozen coordinate alone, then measured the
+  pixels at my feet and found an open path somewhere else on the same screen. The rule I
+  now follow: never call something a wall from my own screen position - probe the colour
+  strip one tile ahead, or look at a fresh frame.
+- I clearly walked in a loop: the same dead pocket (my sprite stopped at the same screen
+  spot with a bright ledge one tile south) appeared from two different approach
+  directions, with 800 px of corridor in between.
+- What the coverage walk did establish: one step replaced the whole screen (312 k pixels
+  changed at once), which is a room transition, and right after it the brown planks were
+  back on screen. So the plank room is reachable from the ledge room; the walk is now
+  told to stop as soon as the plank is in view instead of wandering further.
+- Still unanswered, and the thing to test next once I am back: whether Toriel moves when
+  I leave her room and come back. She blocked the plank, offered no dialogue and did not
+  move for 48 s while I watched her.

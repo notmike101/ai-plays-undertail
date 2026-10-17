@@ -12,8 +12,11 @@ src/bridge/bridge.exe      native bridge, C#/.NET 4, line protocol on stdin/stdo
 src/harness.mjs            Node sidecar: owns bridge child, ws server on 127.0.0.1:8789
 src/ocr.mjs                component OCR + trained vocab (ocr/glyphs.json)
 src/play.mjs               structured stdio CLI used by the operator
-src/walk.mjs               ASCII room map + player position from a raw dump
+src/walk.mjs               shared detectors: ASCII room map, player anchor, world anchor (plank)
 src/move.mjs src/align.mjs closed-loop navigation (measure -> hold -> measure)
+src/explore.mjs            coverage walk: world-position tracker + blocked-direction memory
+src/where.mjs src/map.mjs  one-shot bbox probes (player+plank; full-screen colour legend map)
+src/toriel.mjs             NPC (robe-colour) bbox watcher
 src/yscan.mjs              yellow switch-plate finder
 logs/dialog.jsonl          every line of on-screen dialogue, appended automatically
 ```

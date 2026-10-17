@@ -42,6 +42,7 @@ let stall = 0;
 for (let i = 0; i < steps; i++) {
   const A = look();
   if (!A) { console.log(`step ${i}: player not found`); break; }
+  if (A.pl) { console.log(`PLANK IN VIEW at step ${i}: plank ${A.pl.map(Math.round)} me ${A.me.map(Math.round)} -> heading there`); break; }
   pos = prev ? [pos[0] + delta(prev, A)[0], pos[1] + delta(prev, A)[1]] : [0, 0];
   prev = A;
   const here = key(pos);
