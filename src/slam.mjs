@@ -560,14 +560,32 @@ function pickFrontier(r, cur, tried) {
 }
 
 function plankGoal(r) {
+  // A plank is an object, not a texture: take the biggest connected WOOD blob and aim at the cell of
+  // it nearest me. The old test counted WOOD inside a 5x5 window (so at most 25 cells) and then
+  // required more than 40 - it could never return a target, and the puzzle this room is built around
+  // (carry a plank over the water) was never attempted.
+  const seen = new Uint8Array(GW * GH);
+  const [mx, my] = cellOf(...r.meta.world);
   let best = null, bn = 0;
-  for (let gy = 1; gy < GH - 1; gy++) for (let gx = 1; gx < GW - 1; gx++) {
-    if (r.grid[gidx(gx, gy)] !== WOOD) continue;
-    let n = 0;
-    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) if (r.grid[gidx(gx + dx, gy + dy)] === WOOD) n++;
-    if (n > bn) { bn = n; best = [gx, gy]; }
+  for (let s0 = 0; s0 < GW * GH; s0++) {
+    if (r.grid[s0] !== WOOD || seen[s0]) continue;
+    const st = [s0]; seen[s0] = 1;
+    let n = 0, near = -1, nearCell = null;
+    while (st.length) {
+      const q = st.pop(); n++;
+      const qx = q % GW, qy = (q - qx) / GW;
+      const d = Math.abs(qx - mx) + Math.abs(qy - my);
+      if (near < 0 || d < near) { near = d; nearCell = [qx, qy]; }
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = qx + dx, ny = qy + dy;
+        if (nx < 0 || ny < 0 || nx >= GW || ny >= GH) continue;
+        const ni = gidx(nx, ny);
+        if (!seen[ni] && r.grid[ni] === WOOD) { seen[ni] = 1; st.push(ni); }
+      }
+    }
+    if (n > bn) { bn = n; best = nearCell; }
   }
-  return bn > 40 ? best : null;
+  return bn >= 25 ? best : null;
 }
 // Room identity. Every transition used to mint a brand new grid, so walking back through a
 // doorway gave me room 4, 5, 6... of the same corridor and the map remembered nothing.
@@ -1322,6 +1340,34 @@ if (cmd === 'init') {
   paint(r, b, r.meta.cam); markRobe(r, b, r.meta.cam); markFeet(r, r.meta.cam, me);
   saveRoom(r);
   console.log(`align dx ${a.dx} dy ${a.dy} cost ${a.cost.toFixed(1)} | world ${r.meta.world.map(Math.round)} | trail ${r.meta.trail.length}`);
+} else if (cmd === 'resync') {
+  // Drive the character by hand and meta.cam goes stale, which poisons every later step. Re-derive
+  // my cell from the scenery alone: paint the live frame into a scratch grid wherever the old
+  // camera thinks I am (the local pattern is right even when the offset is wrong), then ask the
+  // room matcher where that pattern actually belongs and move the camera to make that true.
+  const r = loadRoom();
+  const b = grab();
+  const me = playerPosFrom(b) || clearBox(r);
+  if (!me) { console.log('player not found'); }
+  else {
+    const scratch = { grid: new Uint8Array(r.grid), meta: { ...r.meta, trail: [] } };
+    paint(scratch, b, scratch.meta.cam);
+    const land = landmarks(scratch, cellOf(scratch.meta.world[0], scratch.meta.world[1]));
+    const hit = matchRoom(land, roomCatalog());
+    if (!hit) console.log('no saved room matches what I can see; position left alone');
+    else {
+      const m = JSON.parse(fs.readFileSync(`${DIR}/room${hit.room}.json`));
+      const cell = [m.anchor[0] + hit.t[0], m.anchor[1] + hit.t[1]];
+      r.s.room = hit.room;
+      r.meta.cam = [(cell[0] - GOX) * CELL - me.x, (cell[1] - GOY) * CELL - me.y - FEET];
+      r.meta.me = [me.x, me.y];
+      r.meta.world = [r.meta.cam[0] + me.x, r.meta.cam[1] + me.y + FEET];
+      r.meta.prevBuf = b;
+      paint(r, b, r.meta.cam); markRobe(r, b, r.meta.cam); markFeet(r, r.meta.cam, me);
+      saveRoom(r);
+      console.log(`resynced to room ${hit.room} cell ${cell} (${hit.matches} landmarks), world ${r.meta.world.map(Math.round)}`);
+    }
+  }
 } else if (cmd === 'show') {
   show(loadRoom());
 } else if (cmd === 'png') {
