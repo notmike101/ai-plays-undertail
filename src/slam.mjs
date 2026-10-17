@@ -642,6 +642,19 @@ function clearBox(r) {
   return p;
 }
 
+// A single frame where my sprite cannot be found does not end a walk: retry, and report which
+// kind of blank we are looking at (a fade in progress, or an animation frame that hides me).
+function settlePlayer(r, tries = 6) {
+  for (let k = 0; k < tries; k++) {
+    if (k) sleep(400);
+    const b = grab();
+    if (dark(b) > 0.6) return { fade: true };
+    const p = playerPosFrom(b);
+    if (p) return { p, b };
+  }
+  return null;
+}
+
 // one verified step; returns how far my world position actually moved
 function step(r, dir, ms = 150) {
   const before = r.meta.cam, me0 = r.meta.me;
@@ -947,11 +960,14 @@ function walk(mode, steps) {
   const r = loadRoom();
   const b0 = grab();
   r.meta.prevBuf = r.meta.prevBuf || b0;
-  const me0 = playerPosFrom(b0) || clearBox(r);
+  const s0 = settlePlayer(r);
+  if (s0 && s0.fade) { console.log('the screen is mid-fade, nothing to walk into yet'); saveRoom(r); return; }
+  const me0 = s0 ? s0.p : clearBox(r);
   if (!me0) { console.log('player not found'); saveRoom(r); return; }
   r.meta.me = [me0.x, me0.y];
   r.meta.world = [r.meta.cam[0] + me0.x, r.meta.cam[1] + me0.y + FEET];
-  paint(r, b0, r.meta.cam); markRobe(r, b0, r.meta.cam); markFeet(r, r.meta.cam, me0);
+  if (s0) r.meta.prevBuf = s0.b;
+  paint(r, r.meta.prevBuf, r.meta.cam); markRobe(r, r.meta.prevBuf, r.meta.cam); markFeet(r, r.meta.cam, me0);
   const start = cellOf(...r.meta.world);
   const tried = new Set();
   let tgx = 0, tgy = 0;
@@ -1076,7 +1092,19 @@ function walk(mode, steps) {
     }
     if (res.lost) {
       const p = clearBox(r);
-      if (!p) { console.log(`step ${i}: player not found`); break; }
+      if (!p) {
+        // One unreadable frame is not the end of a walk: the detector loses my sprite during
+        // animation frames and while the game moves me on its own. walk20 and walk22 both died on
+        // a single such frame while the very next frame showed me clearly.
+        const s = settlePlayer(r);
+        if (!s || s.fade) { console.log(`step ${i}: player not found in 6 frames`); break; }
+        console.log(`step ${i}: my sprite was unreadable for a moment, found again at ${s.p.x},${s.p.y}`);
+        r.meta.me = [s.p.x, s.p.y];
+        r.meta.world = [r.meta.cam[0] + s.p.x, r.meta.cam[1] + s.p.y + FEET];
+        r.meta.prevBuf = s.b;
+        paint(r, s.b, r.meta.cam); markRobe(r, s.b, r.meta.cam); markFeet(r, r.meta.cam, s.p);
+        continue;
+      }
       r.meta.me = [p.x, p.y];
       r.meta.world = [r.meta.cam[0] + p.x, r.meta.cam[1] + p.y + FEET];
       continue;
