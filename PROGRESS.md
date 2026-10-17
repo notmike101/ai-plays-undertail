@@ -80,6 +80,13 @@
   [360,300,390,352] across 30 s of sampling. Water north, spike tiles south, the planks
   starting on the tile under her feet - that room has exactly one other connection: the
   doorway I came in through.
+- Walked into a new room through a fade the mapper caught (`fade (room transition in progress)`): a
+  symmetric brick "gate" with two vine columns and a cream dummy-like figure; by its appearance it is
+  the Dummy lesson room (no sign on screen confirms the name), and the figure is inert: `z` beside it added nothing to
+  `logs/dialog.jsonl`, and walking into it started no battle and no dialogue - consistent with the
+  earlier note that my accidental FIGHT ended that lesson. Toriel was not in the room.
+  This room is one screen: the camera never scrolled, and the painted box is exactly the capture
+  window (636x474 px), with its two vine columns 200 px apart on the grid against ~205 px on screen.
 - Wandering east/south from there opened a neighbouring room: brick ledges, two vine
   walls, black pits, and no water, plank or Toriel in view. My screen-coordinate
   bookkeeping went wrong there - the camera clamps at a room's edges, so "no movement"
