@@ -96,6 +96,14 @@
   comparing my on-screen shift against how much the scenery shifted; it reports blocked
   directions and flags a full-screen replacement (a likely room change).
 - Full dialogue record: `logs/dialog.jsonl` (copied to `evidence/run1/`).
+- The persistent mapper has been walking that wide brick room (grid `room 0`) from scratch: the
+  camera scrolls to 192,191, 211,290 cells painted, 84,702 walkable, 59,630 routable from me.
+- A real fade plus a recognized revisit ("that is room 0 again", 119 landmarks line up) - transition
+  detection and room identity confirmed on the live game; the reused grid absorbed the fresh paint
+  (walkable 63,480 -> 79,072).
+- The same room contains a raised ledge (lighter slab) that colour calls floor and the game calls
+  wall; Toriel stands on top of it and re-opens "* There is another puzzle in this room. . ." while
+  I am inside her trigger zone. The room's identity is **still unconfirmed** - no sign has been read.
 
 ## Next actions
 1. Walk out of the plank room through the doorway behind me - the reachability flood now

@@ -335,3 +335,25 @@ results. No engine internals, no outside walkthroughs.
 - What that does *not* say: the brick band along the top of this room is still a wall. The mortar
   rule stays, walls I never stood on are untouched (the selftest checks exactly that), and where the
   two readings disagree the tiebreaker is the cell I have occupied, not a new colour threshold.
+
+### Standing next to an NPC froze me, and the map kept sending me into a ledge (run 1)
+- A message box freezes movement, and my sprite stays visible behind it. Two facts that had to be
+  separated: the box is the game talking (so a step that moves 0 px is not a wall - four false
+  "recorded walls" were painted at one spot), and the box is dismissed by the confirm key. The
+  helper that was supposed to do that returned as soon as a frame showed my sprite, so it had never
+  pressed anything; on the live game `press z` advanced "* I wonder if you can solve it" and the
+  screen text went empty.
+- Toriel re-opens that line while I stand inside her trigger zone, so short escape holds landed back
+  inside it and the walk reported "an NPC has me pinned" with every direction at 0 px. Leaving the
+  zone takes one long hold (450 ms, ~80 px), away from the direction I was pressing, then the two
+  perpendicular directions.
+- The lighter slab in this room is a **raised ledge**: colour says floor, the game says wall - my
+  body stops dead at its lip, and Toriel stands on top of it (frame evidence, `walk21`).
+- The map then wasted most of a walk on it: 41 re-targets pressing right out of cell 1066,820 into
+  that lip over 180 steps. Recorded walls are not erased by repaints, so this was replanning, not
+  forgetting - every new route re-entered the same obstacle from the same side. A move that fails
+  three times is now vetoed out of the routing graph for the rest of the walk, and the veto is
+  stored with the room.
+- The mapper does cross doorways: at step 22 of one walk the screen faded and the matcher answered
+  "that is room 0 again (119 landmarks line up)" - the first transition + identity pair confirmed
+  on the live game rather than in a test.

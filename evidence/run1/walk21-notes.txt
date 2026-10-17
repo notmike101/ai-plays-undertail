@@ -1,0 +1,2 @@
+walk21 evidence: the lighter slab is a raised ledge my body stops at (Toriel stands on it); half-size grayscale capture of the live frame.
+map-room0-current.png: slam png output, 211290 painted cells, 13.2% of the grid.

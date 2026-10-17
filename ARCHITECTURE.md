@@ -171,11 +171,9 @@ node src/harness.mjs                                 # sidecar (ws on 127.0.0.1:
   (~15-27 px). A byte-identical frame after a key hold means the game paused when its window
   lost focus, so the step pulls the window to the foreground and presses again before the
   zero-move is believed as a wall.
-  A byte-identical frame is not the only false zero: a message box covers my sprite, so the
-  frame has no player at all and the walk used to quit with "player not found" in the middle of
-  a room Toriel was talking in. `clearBox` OCRs the live frame (`play.mjs text`), prints the
-  line into the walk log, advances the box with `press z` and resumes; only a box that refuses
-  to close after 8 presses ends the walk.
+  A byte-identical frame is not the only false zero: the game can be talking to me, which freezes
+  movement, and `clearBox` has to see that before the walk paints a wall that is not there. See the
+  next bullets for how the box is read and dismissed.
 - Black is not an obstacle for pathing. The area outside a room is black, and every doorway out
   of it is drawn as a black notch in that same area, so `bodyFit`'s clearance rule (refuse a cell
   with known solid within 3 cells sideways) left no routable cell next to any exit: `probe`
@@ -190,3 +188,19 @@ node src/harness.mjs                                 # sidecar (ws on 127.0.0.1:
   target that is now BRICK`. Nine steps per round were burned heading for a wall that grew under
   me, which showed up as the planner flip-flopping between an east and a south target.
   `walk` now nulls the path the moment the target is neither UNKNOWN nor VOID.
+- A message box is detected by its **text**, not by my sprite missing. The sprite stays perfectly
+  visible behind a box, and `clearBox` used to return as soon as a grab showed my anchor - so it
+  never once pressed the confirm key, and two walks burned 411 steps reading one sentence. It now
+  loops while the live OCR has text, printing each new page and pressing `z`, max 4 pages.
+- A zero-move step while a box is up is not a wall: the walk reads the live OCR before it paints,
+  and a box that keeps re-opening means an NPC trigger zone. The contact-break then holds the key
+  450 ms (~80 px) so one step leaves the zone, trying the away direction first and the two
+  perpendiculars after; more than 10 pinned dialog events says "an NPC has me pinned" and stops
+  instead of spending the remaining budget.
+- Three strikes on one move take it off the routing graph: the walk counts failures per
+  (cell, direction), `bfs` skips vetoed edges, and `meta.veto` is saved with the room. Before this
+  the walker pressed right into the lip of a raised ledge 41 times in 180 steps - replanning kept
+  re-entering the same obstacle from the same side, even though paint never erases recorded walls.
+- Room identity has been confirmed on the live game, not just in tests: a real fade at step 22 came
+  back as "that is room 0 again (119 landmarks line up)", and the reused grid absorbed the new paint
+  (walkable 63,480 -> 79,072).
