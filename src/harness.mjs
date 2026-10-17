@@ -242,36 +242,63 @@ wss.on('connection', (ws) => {
   });
 });
 
-// Always-on dialog watcher: no command needed to catch text. When a white text
-// box's ink settles (typing finished), OCR it once, log it to logs/dialog.jsonl,
-// print it, and broadcast a dialog event to every connected client.
-let lastHash = '', sameCount = 0, boxOpen = false, lastText = '';
+// Always-on dialog watcher: no command needed to catch text. Every page that
+// appears in a text box gets OCR'd and logged, even if the operator advances
+// before typing finishes: the frame with the most ink seen for that page is kept
+// and read out when the page changes or the box closes.
+let page = null; // {hash, ink, buf, w, h, logged}
+let logMark = fs.existsSync(DIALOG_LOG) ? fs.statSync(DIALOG_LOG).size : 0;
 const dialogRing = [];
+function logPage(p) {
+  if (!p || p.logged || !p.buf) return;
+  let text;
+  try {
+    text = readText(p.buf, p.w, p.h, 'dialog');
+  } catch (e) {
+    return; // capture/OCR hiccup: leave it unlogged so the next call retries
+  }
+  p.logged = true;
+  if (!text) return;
+  const prev = dialogRing[dialogRing.length - 1];
+  // Same box, more typing done: rewrite the partial line instead of appending
+  const extend = prev && prev.sameBox && text.startsWith(prev.text);
+  if (extend) fs.truncateSync(DIALOG_LOG, logMark);
+  else logMark = fs.existsSync(DIALOG_LOG) ? fs.statSync(DIALOG_LOG).size : 0;
+  const ev = { at: Date.now(), text, sameBox: true };
+  dialogRing.push(ev);
+  if (dialogRing.length > 300) dialogRing.shift();
+  fs.appendFileSync(DIALOG_LOG, JSON.stringify(ev) + '\n');
+  if (!extend) console.log('[dialog] ' + text.replace(/\n/g, ' / '));
+  for (const c of wss.clients) if (c.readyState === 1) c.send(JSON.stringify({ event: 'dialog', text }));
+}
+let boxOpen = false, sameHash = 0;
 async function dialogLoop() {
   for (;;) {
     try {
       if (Date.now() > busyUntil) {
         const b = await bridgeT('box ' + WATCHBIN, 8000);
         if (b && b.ok && b.open) {
-          if (b.hash === lastHash) sameCount++; else { lastHash = b.hash; sameCount = 0; }
-          if (sameCount >= 2) {
-            sameCount = 0;
-            const text = readText(fs.readFileSync(WATCHBIN), b.w, b.h, 'dialog');
-            if (text && text !== lastText) {
-              lastText = text;
-              const ev = { at: Date.now(), text };
-              dialogRing.push(ev);
-              if (dialogRing.length > 300) dialogRing.shift();
-              fs.appendFileSync(DIALOG_LOG, JSON.stringify(ev) + '\n');
-              console.log('[dialog] ' + text.replace(/\n/g, ' / '));
-              for (const c of wss.clients) if (c.readyState === 1) c.send(JSON.stringify({ event: 'dialog', text }));
+          if (page && page.hash === b.hash) {
+            sameHash++;
+            if (b.ink >= page.ink) {
+              page.ink = b.ink;
+              page.buf = fs.readFileSync(WATCHBIN);
+              page.w = b.w; page.h = b.h;
             }
+            if (sameHash >= 2) { logPage(page); sameHash = 0; }
+          } else {
+            logPage(page); // page flipped before it settled: keep what we saw
+            page = { hash: b.hash, ink: b.ink, buf: fs.readFileSync(WATCHBIN), w: b.w, h: b.h, logged: false };
+            sameHash = 0;
           }
           boxOpen = true;
         } else {
-          lastHash = ''; sameCount = 0;
+          if (page) logPage(page);
+          page = null; sameHash = 0;
+          const last = dialogRing[dialogRing.length - 1];
+          if (last) last.sameBox = false; // next box starts a new page chain
           if (boxOpen) {
-            boxOpen = false; lastText = '';
+            boxOpen = false;
             for (const c of wss.clients) if (c.readyState === 1) c.send(JSON.stringify({ event: 'dialogclosed' }));
           }
         }

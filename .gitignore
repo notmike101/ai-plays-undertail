@@ -3,3 +3,4 @@ ocr/l.json
 logs/
 node_modules/
 logs/ocr/*.bin
+cm.txt

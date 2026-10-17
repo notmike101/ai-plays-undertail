@@ -1,0 +1,2 @@
+/reference:System.Drawing.dll
+src\bridge\bridge.cs
