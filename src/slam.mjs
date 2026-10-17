@@ -64,31 +64,34 @@ function classify(b, x, y) {
 // camera did not move at all (clamped, or I am pressed against something).
 const UNIT = { right: [1, 0], left: [-1, 0], up: [0, -1], down: [0, 1] };
 const PXMS = 0.18; // measured walking speed in capture px per ms of held key
+function samp(A, B, dx, dy) { // [mean luma delta, badly mismatched samples, samples]
+  let s = 0, bad = 0, n = 0;
+  for (let y = CY0 + 8; y < CY1 - 8; y += 6) for (let x = CX0 + 8; x < CX1 - 8; x += 6) {
+    const xa = x + dx, ya = y + dy;
+    if (xa < CX0 || xa > CX1 || ya < CY0 || ya > CY1) continue;
+    const d = Math.abs(luma(A, xa, ya) - luma(B, x, y));
+    s += d; if (d > 60) bad++; n++;
+  }
+  return [s / n, bad, n];
+}
+const cost = (A, B, dx, dy) => samp(A, B, dx, dy)[0];
+const badFrac = (A, B, dx, dy) => { const [m, bad, n] = samp(A, B, dx, dy); return bad / (n || 1); };
 function align(A, B, dir = null, ms = 150) {
-  const cost = (dx, dy) => {
-    let s = 0, n = 0;
-    for (let y = CY0 + 8; y < CY1 - 8; y += 6) for (let x = CX0 + 8; x < CX1 - 8; x += 6) {
-      const xa = x + dx, ya = y + dy;
-      if (xa < CX0 || xa > CX1 || ya < CY0 || ya > CY1) continue;
-      s += Math.abs(luma(A, xa, ya) - luma(B, x, y)); n++;
-    }
-    return s / n;
-  };
-  const c0 = cost(0, 0);
+  const c0 = cost(A, B, 0, 0);
   if (c0 < 2) return { dx: 0, dy: 0, cost: c0 };
   const pool = [];
   let exp = [0, 0];
   if (dir) {
     const u = UNIT[dir];
     exp = [Math.round(u[0] * ms * PXMS), Math.round(u[1] * ms * PXMS)];
-    for (let dy = -12; dy <= 12; dy++) for (let dx = -12; dx <= 12; dx++) pool.push([exp[0] + dx, exp[1] + dy, cost(exp[0] + dx, exp[1] + dy)]);
+    for (let dy = -12; dy <= 12; dy++) for (let dx = -12; dx <= 12; dx++) pool.push([exp[0] + dx, exp[1] + dy, cost(A, B, exp[0] + dx, exp[1] + dy)]);
   } else {
     const cands = [];
-    for (let dy = -56; dy <= 56; dy += 4) for (let dx = -56; dx <= 56; dx += 4) cands.push([dx, dy, cost(dx, dy)]);
+    for (let dy = -56; dy <= 56; dy += 4) for (let dx = -56; dx <= 56; dx += 4) cands.push([dx, dy, cost(A, B, dx, dy)]);
     cands.sort((p, q) => p[2] - q[2]);
     for (let k = 0; k < Math.min(6, cands.length); k++) {
       const [bx, by] = cands[k];
-      for (let dy = by - 3; dy <= by + 3; dy++) for (let dx = bx - 3; dx <= bx + 3; dx++) pool.push([dx, dy, cost(dx, dy)]);
+      for (let dy = by - 3; dy <= by + 3; dy++) for (let dx = bx - 3; dx <= bx + 3; dx++) pool.push([dx, dy, cost(A, B, dx, dy)]);
     }
     pool.push([0, 0, c0]);
   }
@@ -107,6 +110,31 @@ function align(A, B, dir = null, ms = 150) {
     if (tie(c) < tie(pick)) pick = c;
   }
   return { dx: pick[0], dy: pick[1], cost: pick[2] };
+}
+// Coarse-to-fine search over a window far wider than one step, for the case where the
+// camera scrolled more than align() was willing to consider.
+function wideAlign(A, B) {
+  let best = [0, 0, 1e9];
+  for (let dy = -128; dy <= 128; dy += 8) for (let dx = -128; dx <= 128; dx += 8) {
+    const c = cost(A, B, dx, dy);
+    if (c < best[2]) best = [dx, dy, c];
+  }
+  for (let dy = best[1] - 8; dy <= best[1] + 8; dy += 2) for (let dx = best[0] - 8; dx <= best[0] + 8; dx += 2) {
+    const c = cost(A, B, dx, dy);
+    if (c < best[2]) best = [dx, dy, c];
+  }
+  return { dx: best[0], dy: best[1], cost: best[2] };
+}
+
+// A real room change replaces the scenery, so almost every sample mismatches even at the best
+// offset. Animated water and spikes (and a camera scroll that outran the window) only inflate
+// the mean, which is how a mid-room step in the pool room got logged as a room change.
+function classifyShift(A, B, dir, ms) {
+  const a = align(A, B, dir, ms);
+  if (a.cost <= 45) return { ...a, transition: 0 };
+  const w = wideAlign(A, B);
+  if (badFrac(A, B, w.dx, w.dy) > 0.45) return { dx: w.dx, dy: w.dy, cost: w.cost, transition: w.cost };
+  return { ...w, transition: 0 };
 }
 
 const dark = (b) => { let d = 0, n = 0; for (let y = CY0; y < CY1; y += 4) for (let x = CX0; x < CX1; x += 4) { if (luma(b, x, y) < 45) d++; n++; } return d / n; };
@@ -128,6 +156,12 @@ function loadRoom() {
   return { s, grid, meta };
 }
 function saveRoom(r) {
+  // the signature travels with the room: it is what lets a doorway I come back through
+  // re-attach to the grid I already painted instead of starting a new room number
+  if (r.meta.world) {
+    r.meta.anchor = cellOf(r.meta.world[0], r.meta.world[1]);
+    r.meta.land = landmarks(r, r.meta.anchor);
+  }
   const meta = { ...r.meta };
   if (r.meta.prevBuf) fs.writeFileSync(`${DIR}/prev.bin`, r.meta.prevBuf); // frame buffer stays out of the JSON sidecar
   delete meta.prevBuf;
@@ -358,6 +392,73 @@ function plankGoal(r) {
   }
   return bn > 40 ? best : null;
 }
+// Room identity. Every transition used to mint a brand new grid, so walking back through a
+// doorway gave me room 4, 5, 6... of the same corridor and the map remembered nothing.
+// A room is signed by the offsets of its scenery landmarks (walls, water, spikes, planks,
+// vines) relative to the cell I am standing on: the camera cannot change those offsets, and
+// a few cells of alignment error are absorbed by the +-1 match tolerance.
+function landmarks(r, cell, R = 60) {
+  const out = [];
+  for (let gy = cell[1] - R; gy <= cell[1] + R; gy++) {
+    for (let gx = cell[0] - R; gx <= cell[0] + R; gx++) {
+      if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) continue;
+      const v = r.grid[gidx(gx, gy)];
+      if (v === UNKNOWN || v === FLOOR || v === LIGHT || v === PROVEN || v === BLOCKED) continue;
+      out.push([gx - cell[0], gy - cell[1]]);
+    }
+  }
+  out.sort((a, b) => (a[0] * a[0] + a[1] * a[1]) - (b[0] * b[0] + b[1] * b[1]));
+  const cap = 120, step = Math.max(1, Math.ceil(out.length / cap));
+  return out.filter((_, i) => i % step === 0);
+}
+
+// Pure so the selftest can drive it: rooms is [{room, anchor, land}]. Hypothesise a
+// translation from a few landmark pairs, score it by how many of my landmarks land on one of
+// theirs, and only call it the same room when a real majority agrees.
+const lmSet = (arr) => new Set(arr.map(([x, y]) => x + ',' + y));
+function lmScore(land, set, tx, ty) {
+  let n = 0;
+  for (const [x, y] of land) {
+    let hit = false;
+    for (let dy = -1; dy <= 1 && !hit; dy++) for (let dx = -1; dx <= 1 && !hit; dx++) if (set.has(x + tx + dx + ',' + (y + ty + dy))) hit = true;
+    if (hit) n++;
+  }
+  return n;
+}
+function matchRoom(land, rooms) {
+  let best = null;
+  for (const rm of rooms) {
+    if (!rm.land || !rm.anchor || rm.land.length < 8 || land.length < 8) continue;
+    const set = lmSet(rm.land);
+    // Hypotheses come from a spread of each list, not the head of it: the nearest landmarks
+    // all belong to whichever block happens to be closest, and two views of one room rarely
+    // have the same block nearest, so the correct translation never gets proposed.
+    const spread = (arr, k) => { const s = Math.max(1, Math.ceil(arr.length / k)); return arr.filter((_, i) => i % s === 0); };
+    for (const pa of spread(land, 12)) {
+      for (const pb of spread(rm.land, 12)) {
+        const t = [pb[0] - pa[0], pb[1] - pa[1]];
+        const n = lmScore(land, set, t[0], t[1]);
+        if (!best || n > best.matches) best = { room: rm.room, t, matches: n, total: rm.total };
+      }
+    }
+    if (best.room !== rm.room) continue;
+    // sampled pairs pin the translation only to within a cell or two; hill-climb it whole cells
+    const base = best.t;
+    for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) {
+      const n = lmScore(land, set, base[0] + dx, base[1] + dy);
+      if (n > best.matches) best = { room: rm.room, t: [base[0] + dx, base[1] + dy], matches: n, total: rm.total };
+    }
+  }
+  // Most of the smaller landmark set has to agree: one shared wall is not a room, and that
+  // is what keeps a genuinely new corridor from being folded into an old one.
+  if (best && best.matches >= 8 && best.matches >= 0.55 * Math.min(land.length, best.total || land.length)) return best;
+  return null;
+}
+
+const roomCatalog = () => fs.readdirSync(DIR)
+  .map((f) => /^room(\d+)\.json$/.exec(f))
+  .filter(Boolean)
+  .map((m) => { const j = JSON.parse(fs.readFileSync(`${DIR}/${m[1]}.json`)); return { room: +m[1], anchor: j.anchor, land: j.land, total: j.land ? j.land.length : 0 }; });
 
 const sameFrame = (A, B) => {
   if (!A || A.length !== B.length) return false;
@@ -396,8 +497,8 @@ function step(r, dir, ms = 150) {
     b = grab();
   }
   if (dark(b) > 0.6) return { fade: true };
-  const a = align(r.meta.prevBuf || b, b, dir, ms);
-  if (a.cost > 45) return { transition: a.cost };
+  const a = classifyShift(r.meta.prevBuf || b, b, dir, ms);
+  if (a.transition) return { transition: a.transition };
   r.meta.lastOff = [a.dx, a.dy];
   r.meta.cam = [before[0] + a.dx, before[1] + a.dy];
   const me = playerPosFrom(b);
@@ -471,6 +572,28 @@ function selftest() {
     ok(grey === 0, `window must exclude the title bar (${grey} grey cells)`);
   }
   {
+    // Animated water and spikes inflate the mean pixel cost without replacing the scenery,
+    // and a camera scroll bigger than the align window did the same: both were logged as
+    // ROOM CHANGE, which threw away a mapped room mid-walk. Decide by the fraction of
+    // badly mismatched samples, and recover the scroll with a wide search.
+    const base = Buffer.alloc(646 * 520 * 4);
+    for (let y = 0; y < 520; y++) for (let x = 0; x < 646; x++) {
+      const v = ((x * 7 + y * 131) ^ (x >> 2)) & 255, p = (y * 646 + x) * 4;
+      base[p] = v; base[p + 1] = v >> 1; base[p + 2] = v; base[p + 3] = 255;
+    }
+    const anim = Buffer.from(base); // the same room; one patch of water rippled
+    for (let y = 100; y < 180; y++) for (let x = 100; x < 300; x++) { const p = (y * 646 + x) * 4; anim[p] = anim[p + 1] = anim[p + 2] = 250; }
+    const same = classifyShift(base, anim, 'right', 150);
+    ok(!same.transition, `animated scenery read as a room change (cost ${same.cost.toFixed(1)})`);
+    ok(same.dx === 0, `the camera scroll was not recovered by the wide search (dx ${same.dx})`);
+    const other = Buffer.alloc(646 * 520 * 4); // a different room entirely
+    for (let y = 0; y < 520; y++) for (let x = 0; x < 646; x++) {
+      const v = ((x * 37 + y * 13) ^ (y >> 3)) & 255, p = (y * 646 + x) * 4;
+      other[p] = v; other[p + 1] = v; other[p + 2] = v; other[p + 3] = 255;
+    }
+    ok(classifyShift(base, other, 'right', 150).transition > 0, 'a replaced frame was not seen as a room change');
+  }
+  {
     // raised brick walls are the same purple as the floor; only the mortar lines tell them
     // apart, and calling them floor is what sent the walker into a wall for four steps
     const b = Buffer.alloc(646 * 520 * 4);
@@ -527,7 +650,27 @@ function selftest() {
     for (let y = 480; y <= 530; y++) if (y < 498 || y > 501) for (let w = 0; w <= 1; w++) r3.grid[gidx(810 + w, y)] = BLOCKED;
     ok(!bfs(r3, [795, 500], [825, 500]), 'bfs planned through a crack my collision box cannot fit');
   }
-  console.log('selftest ok: align anti-aliasing, bfs routing around tested walls, blocked marking');
+  {
+    // Room identity: coming back through a doorway used to mint room 4, 5, 6... of the same
+    // corridor, so nothing I had learned survived. Scenery offsets relative to my own cell are
+    // camera-proof, so they identify the room and tell me which cell I landed on.
+    const mk = (pat) => {
+      const g = new Uint8Array(GW * GH);
+      for (const [x, y, v, w, h] of pat) for (let dy = 0; dy < h; dy++) for (let dx = 0; dx < w; dx++) g[gidx(x + dx, y + dy)] = v;
+      return g;
+    };
+    const cellA = cellOf(0, 0);
+    const rA = { grid: mk([[GOX - 30, GOY - 20, BRICK, 10, 10], [GOX + 10, GOY + 5, WATER, 10, 10], [GOX - 5, GOY + 25, SPIKE, 10, 10]]), meta: {} };
+    const landA = landmarks(rA, cellA);
+    // the same room entered from the other side: every landmark sits 25 cells east, 12 north
+    const rB = { grid: mk([[GOX - 5, GOY - 32, BRICK, 10, 10], [GOX + 35, GOY - 7, WATER, 10, 10], [GOX + 20, GOY + 13, SPIKE, 10, 10]]), meta: {} };
+    const hit = matchRoom(landmarks(rB, cellOf(0, 0)), [{ room: 3, anchor: cellA, land: landA, total: landA.length }]);
+    ok(hit && hit.room === 3 && hit.t[0] === -25 && hit.t[1] === 12, `re-entry did not re-attach to room 3 (${hit ? JSON.stringify(hit) : 'no match'})`);
+    // a different room must not match, even though one bar of scenery is the same shape class
+    const rC = { grid: mk([[GOX - 40, GOY - 3, WATER, 4, 30], [GOX + 8, GOY - 2, VINE, 30, 4]]), meta: {} };
+    ok(!matchRoom(landmarks(rC, cellOf(0, 0)), [{ room: 3, anchor: cellA, land: landA, total: landA.length }]), 'a different room matched room 3');
+  }
+  console.log('selftest ok: align anti-aliasing, transition classifier, bfs routing around tested walls, blocked marking, room identity');
 }
 
 function walk(mode, steps) {
@@ -603,19 +746,37 @@ function walk(mode, steps) {
     if (process.env.TRACE) console.log(`  trace ${dir} ms=${ms} path=${path.length} target=${tgx},${tgy} cam=${r.meta.cam} off=${r.meta.lastOff} cost=${res.cost}`);
     if (res.fade) { console.log(`step ${i}: fade (room transition in progress)`); continue; }
     if (res.transition) {
-      saveRoom(r);
-      r.s.room += 1;
-      fs.writeFileSync(`${DIR}/current.json`, JSON.stringify(r.s));
-      r.grid = new Uint8Array(GW * GH);
-      r.meta = { cam: [0, 0], me: r.meta.me, world: r.meta.world, trail: [] };
-      console.log(`step ${i}: ROOM CHANGE (align cost ${res.transition.toFixed(1)}) -> now mapping room ${r.s.room}`);
+      saveRoom(r);                                  // refreshes the signature of the room I am leaving
+      const land = landmarks(r, cellOf(r.meta.world[0], r.meta.world[1]));
+      const hit = matchRoom(land, roomCatalog());
+      let back = null;
+      if (hit) {
+        r.s.room = hit.room;
+        fs.writeFileSync(`${DIR}/current.json`, JSON.stringify(r.s));
+        const p = `${DIR}/room${hit.room}`;
+        r.grid = fs.existsSync(p + '.bin') ? new Uint8Array(fs.readFileSync(p + '.bin')) : new Uint8Array(GW * GH);
+        const m = JSON.parse(fs.readFileSync(p + '.json'));
+        back = [m.anchor[0] + hit.t[0], m.anchor[1] + hit.t[1]];   // where the landmarks say I landed
+        r.meta = { cam: [0, 0], me: r.meta.me, world: [(back[0] - GOX) * CELL, (back[1] - GOY) * CELL], trail: m.trail || [] };
+        console.log(`step ${i}: ROOM CHANGE - that is room ${hit.room} again (${hit.matches} landmarks line up)`);
+      } else {
+        r.s.room += 1;
+        fs.writeFileSync(`${DIR}/current.json`, JSON.stringify(r.s));
+        r.grid = new Uint8Array(GW * GH);
+        r.meta = { cam: [0, 0], me: r.meta.me, world: r.meta.world, trail: [] };
+        console.log(`step ${i}: ROOM CHANGE (align cost ${res.transition.toFixed(1)}) -> now mapping room ${r.s.room}`);
+      }
       // a room change fades to black and reloads; that takes longer than a few grabs, and
       // giving up here would strand me in a room I never painted
       let b = null;
       for (let k = 0; k < 24 && !b; k++) { sleep(500); const g = grab(); if (!dark(g) && playerPosFrom(g)) b = g; }
       if (!b) { console.log('frame never settled after the transition; mapping it anyway'); b = grab(); if (!playerPosFrom(b)) break; }
       const me = playerPosFrom(b);
-      r.meta.prevBuf = b; r.meta.me = [me.x, me.y]; r.meta.world = [me.x, me.y + FEET];
+      // a reused grid already knows which cell I landed on, so the camera follows from there;
+      // a fresh grid gets anchored at my feet
+      if (back) r.meta.cam = [r.meta.world[0] - me.x, r.meta.world[1] - me.y - FEET];
+      else r.meta.world = [me.x, me.y + FEET];
+      r.meta.prevBuf = b; r.meta.me = [me.x, me.y];
       paint(r, b, r.meta.cam); markRobe(r, b, r.meta.cam); markFeet(r, r.meta.cam, me);
       if (mode === 'frontier') {
         const p = pickFrontier(r, cellOf(...r.meta.world), new Set());
