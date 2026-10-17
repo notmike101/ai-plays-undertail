@@ -387,7 +387,11 @@ const SOLID = new Set([WATER, VINE, SPIKE, BLOCKED, BRICK]);
 // crack that my body cannot enter, which is how the walker pressed right into a wall over
 // and over: BFS had a route, the game said no. Refuse any cell with ground I know is solid
 // within 3 cells sideways - unknown ground is still allowed, that is how I discover edges.
+// PROVEN is exempt: that is ground my collision box physically occupied, so the corridor there is
+// known passable even when it is exactly body-width, which is how these corridors are drawn. The
+// clearance rule only earns its keep on ground I have merely inferred from colour.
 function bodyFit(r, gx, gy) {
+  if (r.grid[gidx(gx, gy)] === PROVEN) return true;
   for (const [dx, dy] of [[3, 0], [-3, 0], [0, 3], [0, -3]]) {
     if (SOLID.has(r.grid[gidx(gx + dx, gy + dy)])) return false;
   }
@@ -907,7 +911,18 @@ function selftest() {
     ok(r8.grid[gidx(996, 500)] === BLOCKED, 'the blocked fan recorded nothing again');
     ok(r8.grid[gidx(997, 500)] === PROVEN, 'a failed approach walled off a cell my feet had occupied');
   }
-  console.log('selftest ok: align anti-aliasing, transition classifier, seam cleanup, bfs arrival, frontier reach and cap, blocked marking, footprint evidence, room identity');
+  {
+    // A corridor exactly my body width is passable when I have walked it. The +-3 clearance rule
+    // exists to stop BFS threading cracks inferred from colour; applied to PROVEN ground it made
+    // every swept corridor one cell wide, and the walker sawed left/right along its own trail.
+    const r9 = { grid: new Uint8Array(GW * GH), meta: { cam: [0, 0], trail: [] } };
+    for (let y = 495; y <= 505; y++) { r9.grid[gidx(790, y)] = BRICK; r9.grid[gidx(798, y)] = BRICK; }
+    for (let y = 496; y <= 504; y++) r9.grid[gidx(794, y)] = PROVEN; // the thread my feet took
+    ok(bodyFit(r9, 794, 500), 'a cell my collision box occupied still demanded clearance');
+    ok(bfs(r9, [794, 496], [794, 504]), 'the walked thread was not routable');
+    ok(!bodyFit(r9, 795, 500), 'an inferred cell beside a wall was accepted without clearance');
+  }
+  console.log('selftest ok: align anti-aliasing, transition classifier, seam cleanup, bfs arrival, frontier reach and cap, blocked marking, footprint evidence, body-width lanes, room identity');
 }
 
 function walk(mode, steps) {
