@@ -224,6 +224,17 @@ function paintMask(b) {
 
 const MW = Math.ceil((CX1 - CX0) / CELL) + 2, MH = Math.ceil((CY1 - CY0) / CELL) + 2;
 const MORTAR = new Uint8Array(MW * MH);
+// One frame of disagreement is texture, not geography: a cell whose class is already known keeps
+// it until two separate frames agree on the new one.
+const PCLASS = new Uint8Array(GW * GH), PCOUNT = new Uint8Array(GW * GH);
+function rewriteOk(i, v, top) {
+  if (v === UNKNOWN || v === VOID) return true; // first read of a cell is always allowed
+  if (v === top) return false;
+  if (PCLASS[i] === top) PCOUNT[i]++; else { PCLASS[i] = top; PCOUNT[i] = 1; }
+  if (PCOUNT[i] < 2) return false;
+  PCLASS[i] = 0; PCOUNT[i] = 0;
+  return true;
+}
 function paint(r, b, cam) {
   const mask = paintMask(b);
   const inside = (x, y) => mask.some(([x0, x1, y0, y1]) => x >= x0 && x <= x1 && y >= y0 && y <= y1);
@@ -263,6 +274,11 @@ function paint(r, b, cam) {
       // PROVEN means my feet were on this cell. No colour vote may downgrade that to impassable;
       // a walkable verdict is still allowed to refine the picture.
       if (r.grid[i] === PROVEN && !WALK.has(top)) continue;
+      // Known ground only changes when the picture repeats the change. walk24 reversed its route
+      // every step (path 28 -> 40 cells, right/left forever) because the plateau lip resolved as
+      // wall from one standing position and as floor from the other, so each paint deleted the
+      // obstacle the previous paint had just created.
+      if (!rewriteOk(i, r.grid[i], top)) continue;
       r.grid[i] = top;
     }
   }
@@ -953,7 +969,16 @@ function selftest() {
     ok(bfs(r9, [794, 496], [794, 504]), 'the walked thread was not routable');
     ok(!bodyFit(r9, 795, 500), 'an inferred cell beside a wall was accepted without clearance');
   }
-  console.log('selftest ok: align anti-aliasing, transition classifier, seam cleanup, bfs arrival, frontier reach and cap, blocked marking, footprint evidence, body-width lanes, room identity');
+  {
+    // the flip-flop that reversed a route every step: known ground must survive one disagreeing
+    // frame and only move when two frames agree
+    const i = gidx(900, 600);
+    ok(rewriteOk(i, UNKNOWN, FLOOR), 'the first read of a cell was blocked');
+    ok(!rewriteOk(i, FLOOR, SPIKE), 'one disagreeing frame rewrote known ground');
+    ok(rewriteOk(i, FLOOR, SPIKE), 'two agreeing frames did not allow the rewrite');
+    ok(!rewriteOk(i, FLOOR, SPIKE), 'the pending count was not reset after a rewrite');
+  }
+  console.log('selftest ok: align anti-aliasing, transition classifier, seam cleanup, bfs arrival, frontier reach and cap, blocked marking, footprint evidence, body-width lanes, room identity, paint hysteresis');
 }
 
 function walk(mode, steps) {
