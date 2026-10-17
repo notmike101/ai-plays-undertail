@@ -1,18 +1,22 @@
-// Closed-loop movement: hold a direction, then decide from the screen whether the
-// world actually changed. My on-screen position barely moves mid-room (the camera
-// follows me), so "did the frame change" is the honest signal that I travelled;
-// a static frame means a wall. Usage: node src/move.mjs <left|right|up|down> <px>
-import { playerPos } from './walk.mjs';
+// Closed-loop movement. Preferred signal: the anchored position (me - brown plank
+// tiles), which is invariant to the following camera. Without a visible landmark
+// (other rooms) fall back to my sprite's own screen shift, then to a big frame
+// change, which only happens when the camera actually scrolled.
+// Usage: node src/move.mjs <left|right|up|down> <px>
+import { anchorFrom, playerPosFrom } from './walk.mjs';
 import { execFileSync } from 'child_process';
 import fs from 'fs';
+
 const [dir, pxS] = process.argv.slice(2);
 const target = Number(pxS);
-const PNG = 'logs/frames/move.png', BIN = 'logs/ocr/move.bin';
+const BIN = 'logs/ocr/move.bin';
 const sh = (args) => execFileSync('node', ['src/play.mjs', ...args], { stdio: 'pipe' });
+const AXIS = { left: [0, -1], right: [0, 1], up: [1, -1], down: [1, 1] }; // [gap component, sign]
+const SIGN = { left: -1, right: 1, up: -1, down: 1 };
 const grab = () => {
-  sh(['shot', 'move.png']);
-  sh(['raw', `dump ${PNG} ${BIN}`]);
-  return { buf: fs.readFileSync(BIN), pos: playerPos(BIN) };
+  sh(['raw', 'grab', BIN]);
+  const buf = fs.readFileSync(BIN);
+  return { buf, a: anchorFrom(buf), p: playerPosFrom(buf) };
 };
 const changed = (A, B) => {
   let n = 0;
@@ -20,18 +24,29 @@ const changed = (A, B) => {
     if (Math.abs(A[i] - B[i]) > 40 || Math.abs(A[i + 1] - B[i + 1]) > 40 || Math.abs(A[i + 2] - B[i + 2]) > 40) n++;
   return n;
 };
-// measured: walking into a wall changes ~3k px (my own animation), walking freely
-// scrolls the view for ~77k px, and standing still changes ~1.5k px
+// how far I travelled along dir between two grabs
+const gain = (A, B, step) => {
+  if (A.a && B.a) { const [c, s] = AXIS[dir]; return (B.a.g[c] - A.a.g[c]) * s; }
+  if (A.p && B.p) {
+    const d = dir === 'left' || dir === 'right' ? (B.p.x - A.p.x) * SIGN[dir] : (B.p.y - A.p.y) * SIGN[dir];
+    if (Math.abs(d) > 8) return d;
+  }
+  return changed(A.buf, B.buf) > 12000 ? step : 0;
+};
+
 let cur = grab();
-if (!cur.pos) { console.log(JSON.stringify({ ok: false, err: 'player not found' })); process.exit(1); }
 let moved = 0, stalls = 0;
 for (let i = 0; moved < target && i < 12; i++) {
   const step = Math.min(60, target - moved); // short holds: ~0.3 px per ms
   sh(['hold', dir, String(Math.round(step / 0.3))]);
+  sh(['wait', '150']);
   const next = grab();
-  const scrolled = changed(cur.buf, next.buf) > 12000;
-  const slid = next.pos && cur.pos ? Math.abs(next.pos.x - cur.pos.x) + Math.abs(next.pos.y - cur.pos.y) > 5 : false;
-  if (scrolled || slid) { moved += step; stalls = 0; } else if (++stalls >= 2) { cur = next; break; }
+  const g = gain(cur, next, step);
+  if (g > 8) { moved += Math.min(Math.round(g), Math.round(step * 1.6)); stalls = 0; }
+  else if (++stalls >= 2) { cur = next; break; }
   cur = next;
 }
-console.log(JSON.stringify({ ok: true, dir, want: target, moved, blocked: moved < target, at: [cur.pos.x, cur.pos.y] }));
+console.log(JSON.stringify({
+  ok: true, dir, want: target, moved, blocked: moved < target,
+  gap: cur.a ? cur.a.g : null, me: cur.p ? [cur.p.x, cur.p.y] : null,
+}));
