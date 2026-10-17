@@ -100,6 +100,49 @@ class Bridge
     [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int cmd);
     [DllImport("user32.dll")] static extern bool SetForegroundWindow(IntPtr h);
     [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+    [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
+    [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr VirtualQueryEx(IntPtr h, IntPtr addr, out MBI info, uint len);
+    [DllImport("kernel32.dll", SetLastError = true)] static extern bool ReadProcessMemory(IntPtr h, IntPtr addr, byte[] buf, int size, out int read);
+    struct MBI
+    {
+        public IntPtr BaseAddress;
+        public IntPtr AllocationBase;
+        public uint AllocationProtect;
+        public IntPtr RegionSize;
+        public uint State;
+        public uint Protect;
+        public uint Type;
+        public uint AlignmentPad;
+    }
+    static byte[] HexBytes(string s)
+    {
+        byte[] r = new byte[s.Length / 2];
+        for (int i = 0; i < r.Length; i++) r[i] = Convert.ToByte(s.Substring(i * 2, 2), 16);
+        return r;
+    }
+    static int FindBox(int[] px, int w, int hh, out int top, out int bot, out int bx0, out int bx1)
+    {
+        top = -1; bot = -1; bx0 = -1; bx1 = -1;
+        const int yTop = 45;
+        for (int y = yTop; y < hh && bot < 0; y++)
+        {
+            int run = 0, start = 0;
+            for (int x = 0; x <= w; x++)
+            {
+                if (x < w && IsWhite(px[y * w + x])) { if (run == 0) start = x; run++; }
+                else
+                {
+                    if (run >= 60 && ThinWhite(px, w, hh, start + run / 2, y))
+                    {
+                        int ey = FindBottom(px, w, hh, y, start, start + run - 1);
+                        if (ey > 0) { top = y; bot = ey; bx0 = start; bx1 = start + run - 1; return 1; }
+                    }
+                    run = 0;
+                }
+            }
+        }
+        return 0;
+    }
 
     const uint SRCCOPY = 0x00CC0020;
     static IntPtr target = IntPtr.Zero; // auto-find by title when zero
@@ -341,6 +384,95 @@ class Bridge
                         a.Dispose(); b.Dispose();
                         break;
                     }
+                    case "mem":
+                    {
+                        // mem <ascii-needle> [maxhits] : read-only scan of the game process memory
+                        if (p.Length < 2) { Console.WriteLine("{\"ok\":false,\"err\":\"need needle\"}"); break; }
+                        int maxhits = p.Length > 2 ? int.Parse(p[2]) : 20;
+                        IntPtr wh = FindWindow();
+                        if (wh == IntPtr.Zero) { Console.WriteLine("{\"ok\":false,\"err\":\"no window\"}"); break; }
+                        uint pid; GetWindowThreadProcessId(wh, out pid);
+                        IntPtr proc = OpenProcess(0x0010 | 0x0400, false, pid);
+                        if (proc == IntPtr.Zero) { Console.WriteLine("{\"ok\":false,\"err\":\"openprocess failed\"}"); break; }
+                        byte[] needle = p[1].StartsWith("hex:")
+                            ? HexBytes(p[1].Substring(4))
+                            : System.Text.Encoding.UTF8.GetBytes(p[1].Replace("%20", " "));
+                        byte[] buf = new byte[1 << 20];
+                        var hits = new List<string>();
+                        long scanned = 0; int regions = 0;
+                        IntPtr addr = new IntPtr(0x10000);
+                        MBI mbi;
+                        while (hits.Count < maxhits)
+                        {
+                            if (VirtualQueryEx(proc, addr, out mbi, (uint)Marshal.SizeOf(typeof(MBI))) == IntPtr.Zero) break;
+                            long size = mbi.RegionSize.ToInt64();
+                            IntPtr next = new IntPtr(addr.ToInt64() + size);
+                            if (next.ToInt64() <= addr.ToInt64() || size <= 0 || size > (1L << 31)) break;
+                            bool readable = mbi.State == 0x1000 && (mbi.Protect & 0xEE) != 0 && (mbi.Protect & 0x100) == 0;
+                            if (readable)
+                            {
+                                regions++;
+                                long pos = 0;
+                                while (pos < size)
+                                {
+                                    int chunk = (int)Math.Min((long)buf.Length, size - pos);
+                                    int got;
+                                    if (!ReadProcessMemory(proc, new IntPtr(addr.ToInt64() + pos), buf, chunk, out got) || got <= 0) break;
+                                    scanned += got;
+                                    for (int i = 0; i + needle.Length <= got; i++)
+                                    {
+                                        int j = 0;
+                                        while (j < needle.Length && buf[i + j] == needle[j]) j++;
+                                        if (j == needle.Length)
+                                        {
+                                            long a = addr.ToInt64() + pos + i;
+                                            int back = i >= 6 ? i - 6 : 0;
+                                            string ctx = "";
+                                            for (int k = back; k < i + needle.Length + 6 && k < got; k++)
+                                                ctx += (buf[k] >= 32 && buf[k] < 127) ? (char)buf[k] : ".";
+                                            hits.Add("\"" + a.ToString("x12") + "|pre:" + (i >= 4 ? BitConverter.ToInt32(buf, i - 4) : -1) + "|" + ctx.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"");
+                                            i += needle.Length - 1;
+                                            if (hits.Count >= maxhits) break;
+                                        }
+                                    }
+                                    pos += chunk - (needle.Length - 1);
+                                    if (chunk < buf.Length) break;
+                                }
+                            }
+                            addr = next;
+                        }
+                        Console.WriteLine("{\"ok\":true,\"pid\":" + pid + ",\"regions\":" + regions + ",\"mb\":" + (scanned >> 20) + ",\"hits\":[" + string.Join(",", hits.ToArray()) + "]}");
+                        break;
+                    }
+                    case "memr":
+                    {
+                        // memr <hexaddr> <len> : hexdump game memory
+                        if (p.Length < 3) { Console.WriteLine("{\"ok\":false,\"err\":\"need addr and len\"}"); break; }
+                        IntPtr wh2 = FindWindow();
+                        if (wh2 == IntPtr.Zero) { Console.WriteLine("{\"ok\":false,\"err\":\"no window\"}"); break; }
+                        uint pid2; GetWindowThreadProcessId(wh2, out pid2);
+                        IntPtr proc2 = OpenProcess(0x0010 | 0x0400, false, pid2);
+                        if (proc2 == IntPtr.Zero) { Console.WriteLine("{\"ok\":false,\"err\":\"openprocess failed\"}"); break; }
+                        long a2 = Convert.ToInt64(p[1], 16);
+                        int len2 = Math.Min(4096, int.Parse(p[2]));
+                        byte[] rb = new byte[len2];
+                        int got2;
+                        if (!ReadProcessMemory(proc2, new IntPtr(a2), rb, len2, out got2))
+                        { Console.WriteLine("{\"ok\":false,\"err\":\"read failed\"}"); break; }
+                        var sb2 = new System.Text.StringBuilder();
+                        for (int i = 0; i < got2; i += 16)
+                        {
+                            string hexS = "", ascS = "";
+                            for (int k = i; k < Math.Min(i + 16, got2); k++)
+                            {
+                                hexS += rb[k].ToString("x2") + " ";
+                                ascS += (rb[k] >= 32 && rb[k] < 127) ? (char)rb[k] : ".";
+                            }
+                            sb2.Append((a2 + i).ToString("x8") + " " + hexS.PadRight(48) + " " + ascS.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\\n");
+                        }
+                        Console.WriteLine("{\"ok\":true,\"addr\":\"" + p[1] + "\",\"len\":" + got2 + ",\"dump\":\"" + sb2 + "\"}");
+                        break;
+                    }
                     case "scan":
                     {
                         IntPtr h = FindWindow();
@@ -354,24 +486,8 @@ class Bridge
                         bmp.UnlockBits(bd);
                         bmp.Dispose();
                         int yTop = 45;
-                        int top = -1, bot = -1, bx0 = -1, bx1 = -1;
-                        for (int y = yTop; y < hh && bot < 0; y++)
-                        {
-                            int run = 0, start = 0;
-                            for (int x = 0; x <= w; x++)
-                            {
-                                if (x < w && IsWhite(px[y * w + x])) { if (run == 0) start = x; run++; }
-                                else
-                                {
-                                    if (run >= 60 && ThinWhite(px, w, hh, start + run / 2, y))
-                                    {
-                                        int ey = FindBottom(px, w, hh, y, start, start + run - 1);
-                                        if (ey > 0) { top = y; bot = ey; bx0 = start; bx1 = start + run - 1; break; }
-                                    }
-                                    run = 0;
-                                }
-                            }
-                        }
+                        int top, bot, bx0, bx1;
+                        FindBox(px, w, hh, out top, out bot, out bx0, out bx1);
                         int ix0 = bx0 < 0 ? 0 : bx0 + 6, ix1 = bx1 < 0 ? w - 1 : bx1 - 6;
                         int iy0 = top < 0 ? yTop : top + 6, iy1 = bot < 0 ? hh - 1 : bot - 6;
                         int rsx = 0, rsy = 0, rn = 0;
@@ -409,6 +525,52 @@ class Bridge
                             "],\"inner\":[" + ix0 + "," + iy0 + "," + ix1 + "," + iy1 +
                             "],\"soul\":[" + (rn > 0 ? rsx / rn : -1) + "," + (rn > 0 ? rsy / rn : -1) + "," + rn +
                             "],\"bullets\":[" + string.Join(",", comps) + "]}");
+                        break;
+                    }
+                    case "box":
+                    {
+                        // box <out.bin> : locate the white text box, hash its ink, write the raw frame for OCR
+                        if (p.Length < 2) { Console.WriteLine("{\"ok\":false,\"err\":\"need out\"}"); break; }
+                        IntPtr hb = FindWindow();
+                        if (hb == IntPtr.Zero) { Console.WriteLine("{\"ok\":false,\"err\":\"no window\"}"); break; }
+                        Bitmap bb = Grab(hb, false);
+                        if (bb == null) { Console.WriteLine("{\"ok\":false,\"err\":\"grab failed\"}"); break; }
+                        int bw2 = bb.Width, bh2 = bb.Height;
+                        BitmapData bbd = bb.LockBits(new Rectangle(0, 0, bw2, bh2), ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
+                        int[] bpx = new int[bw2 * bh2];
+                        Marshal.Copy(bbd.Scan0, bpx, 0, bpx.Length);
+                        byte[] rowb = new byte[bw2 * 4];
+                        using (var fs2 = new System.IO.FileStream(p[1], System.IO.FileMode.Create))
+                            for (int r2 = 0; r2 < bh2; r2++)
+                            {
+                                Marshal.Copy(IntPtr.Add(bbd.Scan0, r2 * bbd.Stride), rowb, 0, rowb.Length);
+                                fs2.Write(rowb, 0, rowb.Length);
+                            }
+                        bb.UnlockBits(bbd);
+                        bb.Dispose();
+                        int btop, bbot, bbx0, bbx1;
+                        int found = FindBox(bpx, bw2, bh2, out btop, out bbot, out bbx0, out bbx1);
+                        long hash = 1469598103934665603L;
+                        long ink = 0;
+                        if (found == 1)
+                        {
+                            for (int y = btop + 6; y <= bbot - 6; y++)
+                                for (int x = bbx0 + 6; x <= bbx1 - 6; x++)
+                                {
+                                    int v = bpx[y * bw2 + x];
+                                    if (!IsWhite(v))
+                                    {
+                                        ink++;
+                                        hash ^= (v & 0xFFFFFF);
+                                        hash *= 1099511628211L;
+                                        hash ^= ((long)x * 31 + (y & 7));
+                                        hash *= 1099511628211L;
+                                    }
+                                }
+                        }
+                        Console.WriteLine("{\"ok\":true,\"open\":" + (found == 1 ? "true" : "false") +
+                            ",\"box\":[" + bbx0 + "," + btop + "," + bbx1 + "," + bbot + "],\"ink\":" + ink +
+                            ",\"hash\":\"" + hash.ToString("x16") + "\",\"w\":" + bw2 + ",\"h\":" + bh2 + "}");
                         break;
                     }
                     case "key":

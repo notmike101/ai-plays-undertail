@@ -66,6 +66,7 @@ async function exec(msg) {
   const cmd = msg.cmd;
   switch (cmd) {
     case 'raw': return bridgeT(msg.line);
+    case 'mem': return bridgeT('mem ' + encodeURIComponent(msg.needle), 120000);
     case 'find': return bridgeT('find');
     case 'list': return bridgeT('list');
     case 'fg': return bridgeT('fg');
@@ -215,6 +216,29 @@ async function exec(msg) {
         await sleep(gap);
       }
       return { ok: true, count: seen.length, pages: seen.map((s) => ({ at: s.at, text: s.t })) };
+    }
+    case 'dialogwatch': {
+      // poll the text box cheaply; when its ink settles (typing done), OCR once and broadcast a dialog event
+      const gap = msg.gap || 150, until = Date.now() + (msg.seconds || 30) * 1000;
+      let last = '', same = 0, lastOpen = false, events = [], lastText = '';
+      while (Date.now() < until) {
+        const b = await bridgeT('box ' + OCRBIN, 8000);
+        if (b.ok && b.open) {
+          if (b.hash === last) same++; else { last = b.hash; same = 0; }
+          if (same >= 2) {
+            const text = readText(fs.readFileSync(OCRBIN), b.w, b.h, msg.set || 'dialog');
+            same = 0;
+            if (text && text !== lastText) {
+              lastText = text;
+              events.push({ at: Date.now(), text });
+              for (const c of wss.clients) if (c.readyState === 1) c.send(JSON.stringify({ event: 'dialog', text }));
+            }
+          }
+          lastOpen = true;
+        } else { last = ''; same = 0; if (lastOpen) { lastOpen = false; lastText = ''; for (const c of wss.clients) if (c.readyState === 1) c.send(JSON.stringify({ event: 'dialogclosed' })); } }
+        await sleep(gap);
+      }
+      return { ok: true, count: events.length, pages: events };
     }
     case 'probe': {
       // press each key, then report changed pixels and where
