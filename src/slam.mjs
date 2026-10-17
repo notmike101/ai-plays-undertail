@@ -232,7 +232,15 @@ function loadRoom() {
   if (!meta.me) meta.me = [0, 0];
   if (!meta.world) meta.world = [0, 0];
   meta.prevBuf = fs.existsSync(`${DIR}/prev.bin`) ? fs.readFileSync(`${DIR}/prev.bin`) : null;
-  return { s, grid, meta };
+  const r = { s, grid, meta };
+  // THIN and FLAT are per-process scratch, rebuilt only by paint(). `probe`, `reach` and `walk "to"`
+  // flood without ever painting a frame, so with the masks left empty every thin band and flat decal
+  // reads as solid and a room I have physically walked through reports "routable from me 1". Build
+  // them the moment the room loads; paint() still refreshes them against the live window each step.
+  thinBrick(r, meta.cam || [0, 0]);
+  thinDark(r, meta.cam || [0, 0]);
+  flatGrey(r);
+  return r;
 }
 function saveRoom(r) {
   // the signature travels with the room: it is what lets a doorway I come back through
@@ -370,6 +378,7 @@ function paint(r, b, cam) {
   stoodRepair(r);
   thinBrick(r, cam);
   thinDark(r, cam);
+  flatGrey(r);
 }
 
 // The floor tiles are drawn with 1-2 px black seams, and black is exactly what VOID means
@@ -400,6 +409,31 @@ function thinSeamsToFloor(r) {
   for (let i = 0, n = GW * GH; i < n; i++) {
     if (r.grid[i] === VOID && Math.min(RUNH[i], RUNV[i]) <= 3) r.grid[i] = FLOOR;
   }
+}
+
+// Flat grey is a decal painted ON the floor, not an obstacle. The colour test cannot separate the
+// Ruins cobbles from spike tiles - both are ~rgb(192,192,192) - so the DRAWN shape decides. Physical
+// proof: holding right from x 412 I travelled across the drawn bboxes of three of the six ring
+// cobbles (412 -> 454 -> 490 -> 526) and only the room's east wall stopped me, so my body passes
+// straight through them; a spike on a stilt, by contrast, is drawn taller than it is wide. A SPIKE
+// run at least as wide as it is tall is therefore floor; taller-than-wide keeps its solid verdict.
+const FLAT = new Uint8Array(GW * GH);
+function flatGrey(r) {
+  for (let y = 0; y < GH; y++) for (let x = 0; x < GW;) {
+    if (r.grid[gidx(x, y)] !== SPIKE) { x++; continue; }
+    let e = x;
+    while (e < GW && r.grid[gidx(e, y)] === SPIKE) e++;
+    for (let q = x; q < e; q++) RUNH[gidx(q, y)] = e - x;
+    x = e;
+  }
+  for (let x = 0; x < GW; x++) for (let y = 0; y < GH;) {
+    if (r.grid[gidx(x, y)] !== SPIKE) { y++; continue; }
+    let e = y;
+    while (e < GH && r.grid[gidx(x, e)] === SPIKE) e++;
+    for (let q = y; q < e; q++) RUNV[gidx(x, q)] = e - y;
+    y = e;
+  }
+  for (let i = 0, n = GW * GH; i < n; i++) FLAT[i] = r.grid[i] === SPIKE && RUNH[i] >= RUNV[i] ? 1 : 0;
 }
 
 // A footstep outranks a colour. This room draws its walkable floor with a flat brick-and-seam
@@ -477,7 +511,8 @@ function walkable(r, gx, gy) {
     if (c[v] > tn) { tn = c[v]; top = v; }
   }
   if (c[PROVEN] >= 2) return true;
-  if (top === VOID || top === WATER || top === VINE || top === SPIKE || top === BLOCKED || top === BRICK) return false;
+  if (top === SPIKE) return FLAT[gidx(gx, gy)] === 1; // flat grey decal = floor; a standing spike is not
+  if (top === VOID || top === WATER || top === VINE || top === BLOCKED || top === BRICK) return false;
   if (c[BLOCKED] >= 3) return false;
   return WALK.has(top);
 }
@@ -500,7 +535,7 @@ function bodyFit(r, gx, gy) {
   for (const [dx, dy] of [[3, 0], [-3, 0], [0, 3], [0, -3]]) {
     const i2 = gidx(gx + dx, gy + dy), v = r.grid[i2];
     // a probeable band must not disqualify the floor next to it, or nothing can reach it
-    if (SOLID.has(v) && !(v === BRICK && THIN[i2])) return false;
+    if (SOLID.has(v) && !(v === BRICK && THIN[i2]) && !(v === SPIKE && FLAT[i2])) return false;
   }
   return true;
 }
@@ -632,6 +667,7 @@ function passable(r, gx, gy) {
   if (gx < 0 || gx >= GW || gy < 0 || gy >= GH) return false;
   if (walkable(r, gx, gy)) return true;
   if (THIN[gidx(gx, gy)]) return true; // a thin "brick" band is probed by stepping into it
+  if (FLAT[gidx(gx, gy)]) return true; // a flat decal: I have walked through these bodies
   if (r.grid[gidx(gx, gy)] !== UNKNOWN) return false;
   for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (walkable(r, gx + dx, gy + dy)) return true;
   return false;
@@ -714,6 +750,7 @@ function pickFrontier(r, cur, tried) {
       stoodRepair(r);
       thinBrick(r, r.meta.cam || [0, 0]);
       thinDark(r, r.meta.cam || [0, 0]);
+      flatGrey(r);
       console.log('the map looked finished; repairing seams and footprints and looking again');
       return pickFrontier(r, cur, tried);
     }
@@ -1231,12 +1268,14 @@ function selftest() {
     const cx9 = 2 * (860 - GOX) - (CX0 + CX1) / 2, cy9 = 2 * (500 - GOY) - (CY0 + CY1) / 2;
     thinBrick(r9, [cx9, cy9]); // production order: the brick pass rebuilds THIN in the window
     thinDark(r9, [cx9, cy9]);
+    flatGrey(r9);
     ok(THIN[gidx(855, 500)] === 1, 'a 20-cell black gate was not made probeable');
     ok(bfs(r9, [800, 500], [900, 500]), 'bfs still refused to cross a black gate the game walks through');
     for (let y = 460; y <= 540; y++) for (let x = 850; x <= 869; x++) r9.grid[gidx(x, y)] = FLOOR;
     for (let y = 460; y <= 540; y++) for (let x = 850; x <= 949; x++) r9.grid[gidx(x, y)] = VOID; // 100 cells: the outside
     thinBrick(r9, [cx9, cy9]);
     thinDark(r9, [cx9, cy9]);
+    flatGrey(r9);
     ok(THIN[gidx(860, 500)] === 0, 'a 100-cell black region was made probeable');
     ok(!bfs(r9, [800, 500], [930, 500]), 'bfs crosses a 100-cell black region');
   }
@@ -1343,6 +1382,21 @@ function selftest() {
     ok(!bodyFit(r9, 795, 500), 'an inferred cell beside a wall was accepted without clearance');
   }
   {
+    // Flat grey decals are floor. The six ring cobbles are drawn the same grey as spike tiles, and
+    // holding right carried me straight through three of their drawn bodies (feet x 412 -> 454 -> 490
+    // -> 526) until the room's east wall stopped me. Shape is the only separator, so a SPIKE blob at
+    // least as wide as it is tall must stop being an obstacle, while a spike standing taller than it
+    // is wide must keep its verdict.
+    const rF = { grid: new Uint8Array(GW * GH), meta: { cam: [0, 0], trail: [] } };
+    for (let y = 496; y <= 503; y++) for (let x = 800; x <= 813; x++) rF.grid[gidx(x, y)] = SPIKE; // cobble 14x8 cells
+    for (let y = 520; y <= 539; y++) for (let x = 850; x <= 855; x++) rF.grid[gidx(x, y)] = SPIKE; // spike 6x20 cells
+    flatGrey(rF);
+    ok(walkable(rF, 806, 500), 'a flat grey cobble was still called solid after I walked through it');
+    ok(passable(rF, 806, 500) && bodyFit(rF, 806, 500), 'the planner still refused to path across a decal');
+    ok(!walkable(rF, 852, 530), 'a spike standing taller than wide lost its solid verdict');
+    ok(!bodyFit(rF, 857, 530), 'floor beside a standing spike stopped demanding clearance');
+  }
+  {
     // the flip-flop that reversed a route every step: known ground must survive one disagreeing
     // frame and only move when two frames agree
     const i = gidx(900, 600);
@@ -1364,7 +1418,7 @@ function selftest() {
     for (let x = 100; x <= 400; x++) { const p = (200 * CW + x) * 4; decoy[p] = decoy[p + 1] = decoy[p + 2] = 255; }
     ok(boxRect(decoy) === null, 'a single pale edge was mistaken for a message box');
   }
-  console.log('selftest ok: align anti-aliasing, transition classifier, speed model, seam cleanup, bfs arrival, frontier reach and cap, blocked marking, footprint evidence, body-width lanes, room identity, paint hysteresis, message box mask');
+  console.log('selftest ok: align anti-aliasing, transition classifier, speed model, seam cleanup, bfs arrival, frontier reach and cap, blocked marking, footprint evidence, body-width lanes, room identity, paint hysteresis, message box mask, flat grey decals');
 }
 
 function walk(mode, steps) {
@@ -1399,6 +1453,7 @@ function walk(mode, steps) {
     for (let t = 0; t <= 1.001; t += 0.25) {
       const c1 = camOfCell(start[0] + (tgx - start[0]) * t, start[1] + (tgy - start[1]) * t);
       thinBrick(r, c1); thinDark(r, c1);
+      flatGrey(r);
     }
   }
   console.log(`walk ${mode}: cell ${start} -> ${tgx},${tgy}`);
@@ -1766,6 +1821,7 @@ if (cmd === 'init') {
   thinSeamsToFloor(r);
   thinBrick(r, r.meta.cam || [0, 0]);
   thinDark(r, r.meta.cam || [0, 0]);
+  flatGrey(r);
   const before = r.grid.reduce((a, v) => a + (v === BRICK || v === VOID ? 1 : 0), 0);
   stoodRepair(r);
   const after = r.grid.reduce((a, v) => a + (v === BRICK || v === VOID ? 1 : 0), 0);
@@ -1780,6 +1836,7 @@ if (cmd === 'init') {
   for (let s = 0; s <= 1.001; s += 0.2) {
     const c1 = camOfCell(start[0] + (t[0] - start[0]) * s, start[1] + (t[1] - start[1]) * s);
     thinBrick(r, c1); thinDark(r, c1);
+    flatGrey(r);
   }
   const CL = ['UNKNOWN', 'FLOOR', 'LIGHT', 'VOID', 'WATER', 'SPIKE', 'WOOD', 'VINE', 'PROVEN', 'OTH', 'BLOCKED', 'BRICK'];
   const seen = new Set([gidx(start[0], start[1])]);
