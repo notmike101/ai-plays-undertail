@@ -7,15 +7,21 @@ keyboard input. No memory reads of game state, no save-file parsing. Two tools d
 - `src/play.mjs` — observation + input. Verbs: `shot n.png`, `text`, `press <key>`, `hold <key> <ms>`,
   `down`, `up`, `seq`. Hold moves ~0.18 px/ms (400 ms ~72 px, 1200 ms ~215 px).
 - `src/slam.mjs` — persistent pixel-derived world map + route planner. Verbs: `init`, `mark`, `show`,
-  `png`, `walk`, `selftest`, `probe`, `maskdbg`, `clean`, `resync`, `reach`.
+  `png`, `walk`, `selftest`, `probe`, `maskdbg`, `clean`, `resync`, `reach`, `nudge <dir> <ms>`.
   `walk frontier|plank|"to <wx> <wy>" [steps]` (world coords; default 60 steps).
   `reach <wx> <wy>` floods with the planner's own gates and prints the class/THIN/passable/bodyFit of the
   four cells ahead of the closest cell it could reach — the tool for any "no path".
+  `nudge <dir> <ms>` is a walkability probe that stays inside the mapper: one verified step, reported as a
+  distance, painting what it walked and dismissing a message box before calling anything a wall.
 - `src/motion.mjs` — the measurement for any "did it move?" claim. `match <x0> <y0> <x1> <y1> [maxshift]
   [play.mjs cmd...]` grabs a raw frame, runs the action, grabs again and reports the offset that best
   re-aligns that region; `files a.bin b.bin <x0> <y0> <x1> <y1> [maxshift]` compares saved grabs. Run it
   once over a fixed wall and once over the object (the block, Toriel): real motion is object offset minus
   wall offset. Without it I published two wrong motion claims.
+- `tools/xfire.mjs [play.mjs args...]` — raw grab, action, raw grab, then the count of differing pixels and
+  the bbox they cover. The measurement for "did pressing this do anything" and "did that object move"; it
+  is what showed a yellow plaque-lever's handle never moves and that my sprite box can be byte-identical
+  while the mapper claims 210 px of walking.
 - Helpers: `node tmp_census.mjs [CLASS]` (blob inventory per class), `node tmp_black.mjs <gx> <gy>`,
   `node tmp_gaps.mjs <gx> <gy>`. Grid: 2 px per cell, 1600x1000, origin cell (800,500) = world (0,0);
   `cell = (800 + wx/2, 500 + wy/2)`. Maps: `logs/map/roomN.{bin,json,png}` (gitignored).

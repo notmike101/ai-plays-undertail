@@ -1,5 +1,33 @@
 # Progress
 
+
+## Status (2026-10-17, session 5): the switch room has no mechanism; the way out is a south corridor
+- Harness was down at resume; restarted it (`node src/harness.mjs`). The game instance is unchanged and
+  `slam`'s saved grid was stale, so every coordinate from the previous session is void.
+- The room east of the six-stone ring room is mapped by eye and by measurement: **one screen tall, ~510 px
+  wide, camera scrolls only horizontally**; two water channels with brick planks, framed water outlets at
+  their north heads, three vines, one grey standing plaque, one grey wall plaque (`GAMEPLAY.md`, new section
+  at the end; evidence `run1/41_*` - `46_*`).
+- The three yellow slot objects are **note plaques, not switches**: `z` prints `* Please press this switch.
+  - TORIEL` and the drawn handle never moves (`tools/xfire.mjs` + 10x crops). The instruction from
+  `evidence/run1/40_*` - "trigger several switches ... I have labelled the ones that you need to flip" - is
+  therefore NOT satisfied by anything in this room, and the labelled objects are still unidentified.
+- The room's **west edge is a wall**; the exit is a pale corridor that leaves through the **bottom edge**
+  around world x +40..+130 - Toriel's `* Please continue south.` was about that corridor, not about the ring
+  room. (This supersedes the claim in the same session's journal entry that south of this room is only wall:
+  I had tested it from the room's east half.)
+- **Toriel is solid**; walking into her is a 0-px wall and she does not step aside.
+- Tooling landed this session, each from a failure I hit: `blobStill` phantom-motion guard in `step()`
+  (selftest case), `nudge` now dismisses message boxes, `tools/xfire.mjs` (raw-grab diff: how many pixels an
+  action changed and where), plus the earlier `flatGrey` decal fix and building `thinBrick`/`thinDark`/
+  `flatGrey`/`BOX` in `loadRoom` so `reach`/`probe`/`walk "to"` stop flooding with empty masks.
+  `selftest` green.
+- Still open and blocking autonomous mapping: the identity matcher reports **"ROOM CHANGE - that is room 0
+  again"** on transitions here, so the grid welds rooms together (`routable from me 2` in a grid with 117434
+  walkable cells). Between rooms I drive by hand with a shot after every leg.
+- Hold speed measured across rooms today: 0.155-0.19 px/ms, matching `PXMS = 0.18`, not the 0.10 figure
+  recorded in session 4.
+
 ## Status (2026-10-17, session 4): back at the Ruins - Entrance save point on a new game instance
 - The instance being played changed mid-session: UNDERTALE.exe is now **pid 1332 / window 0x67716**
   (the operator reloaded from the save). pid 12320 / window 0x5505054 is gone. A 200-step frontier walk

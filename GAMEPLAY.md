@@ -533,6 +533,14 @@ results. No engine internals, no outside walkthroughs.
   grid and a smeared seam between them; `walk frontier` then reported "the map looked finished" twice and
   `reach` refused a target the grid calls solid. Until the seam is fixed the map is only used **within** one
   room, and travel between rooms is done by hand with a shot after each leg.
-- Evidence (in `evidence/run1/`): 41 the plaque at the west edge; 42 me boxed between water, Toriel and the
-  wall; 43 the two channels, planks and framed outlets; 44 the plaque-lever with its handle unmoved after
-  pressing.
+- Evidence (in `evidence/run1/`): 41 the slot-plaque's own text, `Please press this switch`; 42 me boxed
+  between water, Toriel and the wall; 43 the two channels, planks and framed outlets; 44 the plaque-lever
+  with its handle unmoved after pressing; 45 the south wall with the camera unmoved; 46 the west-edge plaque
+  and the black walled-off corner.
+
+### CORRECTION to the section above, same session: this room does have a south exit
+- "South of me in this room is a wall" was tested from the room's **east half**. Walking to the west half and
+  looking again: the room's west edge is a wall (Chara against it, void beyond), and there is a **pale
+  corridor leaving through the bottom edge of the frame** at world x ~+40..+130 - so
+  `* Please continue south.` does apply here, and it points at that corridor. The ring-room claim in the
+  previous bullet is withdrawn until I stand at the ring and test its south side myself.
