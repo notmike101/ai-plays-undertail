@@ -90,6 +90,17 @@ function grab() {
 const px = (b, x, y) => { const i = (y * CW + x) * 4; return [b[i + 2], b[i + 1], b[i]]; };
 const luma = (b, x, y) => { const i = (y * CW + x) * 4; return b[i] + b[i + 1] + b[i + 2]; };
 
+// Mean luma change inside a box around where my sprite was. Used to catch a phantom step: the colour
+// detector can lock onto an unrelated blob far away, and then the mapper would credit hundreds of px
+// of walking to a frame whose pixels - mine and the window's - never changed.
+function blobStill(A, B, cx, cy) {
+  const x0 = Math.max(CX0, cx - 20), x1 = Math.min(CX1, cx + 20);
+  const y0 = Math.max(CY0, cy - 28), y1 = Math.min(CY1, cy + 28);
+  let s = 0, n = 0;
+  for (let y = y0; y <= y1; y += 2) for (let x = x0; x <= x1; x += 2) { s += Math.abs(luma(A, x, y) - luma(B, x, y)); n++; }
+  return n ? s / n : 999;
+}
+
 function near(c, r, g, b, tol = 22) { return Math.abs(c[0] - r) <= tol && Math.abs(c[1] - g) <= tol && Math.abs(c[2] - b) <= tol; }
 
 function classify(b, x, y) {
@@ -951,9 +962,20 @@ function step(r, dir, ms = 150) {
   // My own screen motion is the only thing that separates "the camera scrolled" from "the
   // camera clamped at the room edge and I walked instead"; align() cannot tell the two apart
   // over flat featureless floor, and getting it wrong doubles my recorded position.
-  const sm = me ? [me.x - me0[0], me.y - me0[1]] : [0, 0];
+  let sm = me ? [me.x - me0[0], me.y - me0[1]] : [0, 0];
   const a = classifyShift(r.meta.prevBuf || b, b, dir, ms, sm);
   if (a.transition) return { transition: a.transition };
+  // A blob found far away is not motion. Cornered between the water, Toriel and the wall, the
+  // detector locked onto a brown patch ~210 px east and the mapper credited 210 px of walking while
+  // the pixels under my own body were byte-identical (mean |d| 0.0, measured with src/motion.mjs).
+  // If nothing under my body changed and the window did not scroll, I did not move: keep the last
+  // located position instead of teleporting to whichever blob the colour test prefers this frame.
+  let phantom = false;
+  if (me && r.meta.prevBuf && Math.hypot(sm[0], sm[1]) > 4 && !a.dx && !a.dy &&
+      blobStill(r.meta.prevBuf, b, me0[0], me0[1]) < 1.5) {
+    console.log(`the blob jumped ${Math.round(Math.hypot(sm[0], sm[1]))} px while my own pixels and the window are unchanged: no motion`);
+    phantom = true;
+  }
   // Physics bound. My world position is cam + my screen position, so the camera shift plus my own
   // screen motion has to add up to what the held key could actually move me. A 35 ms hold that
   // reports 273 px is the align locking onto a copy of the repeating brick pattern several tiles
@@ -966,14 +988,14 @@ function step(r, dir, ms = 150) {
     // if my sprite anchor jumped by an impossible amount too, refuse the frame rather than smear it
     if (me && Math.hypot(sm[0], sm[1]) > phys) return { lost: true };
   }
-  const d = foldStep(r, { me, a });
+  const d = foldStep(r, { me: phantom ? null : me, a });
   r.meta.prevBuf = b;
   paint(r, b, r.meta.cam);
   markRobe(r, b, r.meta.cam);
   // On a lost frame the feet disc goes where the measured scroll says I got to: an estimate, but
   // bounded by the physics check above, and the alternative is a hole in the map where I walked.
   markFeet(r, r.meta.cam, r.meta.me);
-  return { moved: d, cost: a.cost, lost: !me, world: [r.meta.cam[0] + r.meta.me[0], r.meta.cam[1] + r.meta.me[1]] };
+  return { moved: d, cost: a.cost, lost: !me, phantom, world: [r.meta.cam[0] + r.meta.me[0], r.meta.cam[1] + r.meta.me[1]] };
 }
 
 function show(r) {
@@ -1397,6 +1419,18 @@ function selftest() {
     ok(!bodyFit(rF, 857, 530), 'floor beside a standing spike stopped demanding clearance');
   }
   {
+    // Phantom motion. Cornered between water, Toriel and a wall, the detector found a blob ~210 px
+    // east and the mapper credited it as walking, while the pixels under my body were identical
+    // (src/motion.mjs measured mean |d| 0.0 across the box). A frame whose own body box did not
+    // change is no motion, whatever blob the colour test prefers.
+    const A = Buffer.alloc(646 * 520 * 4), B = Buffer.alloc(646 * 520 * 4);
+    for (let i = 0; i < A.length; i += 4) A[i] = A[i + 1] = A[i + 2] = 120, B[i] = B[i + 1] = B[i + 2] = 120;
+    for (let y = 100; y < 140; y++) for (let x = 500; x < 540; x++) { const p = (y * 646 + x) * 4; B[p] = B[p + 1] = B[p + 2] = 250; }
+    ok(blobStill(A, B, 320, 250) < 1.5, 'an unchanged body box read as motion');
+    for (let y = 240; y < 280; y++) for (let x = 310; x < 330; x++) { const p = (y * 646 + x) * 4; B[p] = B[p + 1] = B[p + 2] = 10; }
+    ok(blobStill(A, B, 320, 250) > 100, 'a frame where my own body changed read as standing still');
+  }
+  {
     // the flip-flop that reversed a route every step: known ground must survive one disagreeing
     // frame and only move when two frames agree
     const i = gidx(900, 600);
@@ -1418,7 +1452,7 @@ function selftest() {
     for (let x = 100; x <= 400; x++) { const p = (200 * CW + x) * 4; decoy[p] = decoy[p + 1] = decoy[p + 2] = 255; }
     ok(boxRect(decoy) === null, 'a single pale edge was mistaken for a message box');
   }
-  console.log('selftest ok: align anti-aliasing, transition classifier, speed model, seam cleanup, bfs arrival, frontier reach and cap, blocked marking, footprint evidence, body-width lanes, room identity, paint hysteresis, message box mask, flat grey decals');
+  console.log('selftest ok: align anti-aliasing, transition classifier, speed model, seam cleanup, bfs arrival, frontier reach and cap, blocked marking, footprint evidence, body-width lanes, room identity, paint hysteresis, message box mask, flat grey decals, phantom motion');
 }
 
 function walk(mode, steps) {
