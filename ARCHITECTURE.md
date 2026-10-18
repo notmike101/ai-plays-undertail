@@ -363,3 +363,22 @@ node src/harness.mjs                                 # sidecar (ws on 127.0.0.1:
   new room instead. Under 300 known cells there is nothing to contradict, so landmarks still decide.
 - Ordering mattered: the frame used to be grabbed after the reuse decision, so the pixels could not be part
   of the test.
+
+### A cached OCR line convinced a walk it was being talked to
+- `walk frontier 400` livelocked at cell (159,184) from step 41 to step 399, the log alternating "the game is
+  talking, movement frozen: . ?? ? ." / "broke contact going up" / "left moved 7px". After the walk I pressed
+  `z` on the spot and took a shot: **there was no message box on screen at all**, and `play.mjs text` returned
+  the same `". ?? ? ."` on every call. The box had closed long ago - the text line is cached, and the walk
+  believed the cache instead of the frame. It then pressed `z` at scenery, sidestepped, replanned back onto the
+  same cell, and repeated 360 times. Nothing in the loop ever asked whether a box was drawn.
+- Fix: `hasMessageBox(b)` (`boxRect(b) !== null`) is now the gate on every claim that the game is talking.
+  `clearBox` breaks out at once when no box is drawn, and the walk branch only reads the OCR when the pixels
+  show a box. `selftest` pins both directions: a drawn box registers, one pale edge does not.
+- The guard that exists for this (`dialogEvents > 10`) never fired because it also required `moved < 6`, and the
+  contact-breaking sidestep always moved 7-80 px. Movement is not progress: the escape moved me and the route
+  dragged me back. Two guards replace it - a `TALKER` mask, reset at the start of every walk, that `passable()`
+  refuses over a 21x21-cell disc once a cell has **actually** opened a box 3 times (a 7x7 patch around where I
+  stand is exempt so the ban cannot seal the walk in), and a hard stop after 8 dismissals at one cell. Those are
+  for genuine repeat-talkers, of which Toriel is one: she re-opens her note whenever I face her.
+- I first wrote this section claiming the channel's framed water outlet was an interactive object that kept
+  talking. **Withdrawn**: the shot shows no box there. The framed outlets remain unidentified.

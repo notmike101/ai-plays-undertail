@@ -311,6 +311,12 @@ function boxRect(b) {
   }
   return null;
 }
+
+// The visual test that a message box is on screen. Needed because the OCR line is not live: with no box
+// drawn, `play.mjs text` kept returning the same line (". ?? ? .") for hundreds of calls, and the walk loop
+// believed it - 360 steps of "the game is talking" against a frame with no box in it. Anything that decides
+// "the game is talking" has to look at pixels, not at the text cache.
+const hasMessageBox = (b) => boxRect(b) !== null;
 function paintMask(b) {
   const m = [];
   const p = playerPosFrom(b);
@@ -460,6 +466,12 @@ function thinSeamsToFloor(r) {
 // straight through them; a spike on a stilt, by contrast, is drawn taller than it is wide. A SPIKE
 // run at least as wide as it is tall is therefore floor; taller-than-wide keeps its solid verdict.
 const FLAT = new Uint8Array(GW * GH);
+
+// Cells a walk must route around because standing on them makes the game talk. A message box freezes
+// movement, and an object I keep facing re-opens its box the instant I dismiss it: one 400-step frontier
+// walk spent steps 41-399 parked at (159,184) next to the channel's framed water outlet, dismissing the
+// same box 360 times. The box is not a wall and the cell is not a wall, so the fix is routing, not paint.
+const TALKER = new Uint8Array(GW * GH);
 function flatGrey(r) {
   for (let y = 0; y < GH; y++) for (let x = 0; x < GW;) {
     if (r.grid[gidx(x, y)] !== SPIKE) { x++; continue; }
@@ -707,6 +719,7 @@ function bfs(r, start, goal, cap = 500000) {
 // room's real outline gets discovered, since colour alone cannot tell wall from floor here.
 function passable(r, gx, gy) {
   if (gx < 0 || gx >= GW || gy < 0 || gy >= GH) return false;
+  if (TALKER[gidx(gx, gy)]) return false;
   if (walkable(r, gx, gy)) return true;
   if (THIN[gidx(gx, gy)]) return true; // a thin "brick" band is probed by stepping into it
   if (FLAT[gidx(gx, gy)]) return true; // a flat decal: I have walked through these bodies
@@ -935,8 +948,9 @@ function boxText() { try { return (JSON.parse(execFileSync('node', ['src/play.mj
 function clearBox(r) {
   let last = '';
   for (let k = 0; k < 4; k++) {
+    if (!hasMessageBox(grab())) break;   // no box drawn: the cached OCR line is not evidence
     const t = boxText();
-    if (!t) break; // nothing on screen: the box is closed (or there never was one)
+    if (!t) break; // box on screen but unreadable yet: stop pressing rather than flailing
     if (t !== last) console.log(`on screen: ${t.replace(/\n/g, ' ')}`);
     last = t;
     sh(['press', 'z']);
@@ -1300,6 +1314,18 @@ function selftest() {
     ok(bad.agree < 0.5, `a grid contradicted by everything in view still passed the veto (${bad.agree.toFixed(2)})`);
   }
   {
+    // A cell whose object talks me to death must leave the routing graph. The livelock: a 400-step
+    // frontier walk spent steps 41-399 dismissing the same box at (159,184), because the box freezes
+    // movement and the object re-opens it the moment it is closed while I stand on its trigger cell.
+    const rt = { grid: new Uint8Array(GW * GH), meta: {} };
+    for (let gy = 498; gy <= 502; gy++) for (let gx = 798; gx <= 802; gx++) rt.grid[gidx(gx, gy)] = FLOOR;
+    ok(passable(rt, 800, 500), 'known floor stopped being passable');
+    TALKER[gidx(800, 500)] = 1;
+    ok(!passable(rt, 800, 500), 'a cell inside a talker trigger zone is still routable');
+    TALKER.fill(0);
+    ok(passable(rt, 800, 500), 'the talker ban outlived the walk that set it');
+  }
+  {
     // The floor tiles' 1-2 px black seams classify as VOID, the same value a real pit gets, so
     // they were painted as pits: they broke the scenery signature and, while the clearance rule
     // still counted black as solid, they cut corridors my body could not cross.
@@ -1501,8 +1527,12 @@ function selftest() {
     for (let y = 0; y < CHF; y++) for (let x = 0; x < CW; x++) { const p = (y * CW + x) * 4; decoy[p] = decoy[p + 1] = decoy[p + 2] = 120; }
     for (let x = 100; x <= 400; x++) { const p = (200 * CW + x) * 4; decoy[p] = decoy[p + 1] = decoy[p + 2] = 255; }
     ok(boxRect(decoy) === null, 'a single pale edge was mistaken for a message box');
+    // The walk loop asks this question, not the OCR: a cached text line kept reporting a box that was
+    // not on screen, and a 400-step walk talked to itself for 360 of them.
+    ok(hasMessageBox(f) === true, 'a drawn box did not register as a message box');
+    ok(hasMessageBox(decoy) === false, 'a room with one pale edge registered as a message box');
   }
-  console.log('selftest ok: align anti-aliasing, transition classifier, speed model, seam cleanup, bfs arrival, frontier reach and cap, blocked marking, footprint evidence, body-width lanes, room identity, paint hysteresis, message box mask, flat grey decals, phantom motion, room reuse veto');
+  console.log('selftest ok: align anti-aliasing, transition classifier, speed model, seam cleanup, bfs arrival, frontier reach and cap, blocked marking, footprint evidence, body-width lanes, room identity, paint hysteresis, message box mask, flat grey decals, phantom motion, room reuse veto, talker routing');
 }
 
 function walk(mode, steps) {
@@ -1547,6 +1577,8 @@ function walk(mode, steps) {
   const pressTries = new Map(); // black gaps get escalating holds, not wall marks
   let pressMs = 0, pressCount = 0;
   r.veto = new Set(r.meta.veto || []);
+  TALKER.fill(0);
+  const talkCount = new Map();   // how many times the same cell has opened a box this walk
   r.meta.repairTried = 0; // one repair pass per walk, at the moment the map looks finished
   let prev = null; // the route I am committing to, so two equal detours cannot alternate
   for (let i = 0; i < steps; i++) {
@@ -1747,11 +1779,33 @@ function walk(mode, steps) {
     // as a wall paints false obstacles - walk17 recorded four wall fans while Toriel was
     // mid-sentence. Read the box, advance it, and let the next iteration try the step again.
     if (res.moved < 6) {
-      const t = boxText();
+      // Pixels decide whether the game is talking: the OCR line is cached and kept returning the same
+      // unreadable text (". ?? ? .") long after the box closed, which is what let one walk spend 360 steps
+      // believing it was frozen by a conversation that was not happening.
+      const t = hasMessageBox(grab()) ? boxText() : '';
       if (t) {
         dialogEvents++;
         console.log(`step ${i}: the game is talking, movement frozen: ${t.replace(/\n/g, ' ')}`);
         clearBox(r);
+        // The same object re-opens the instant it is dismissed while I keep standing on its trigger
+        // cell, and the sidestep below only moves me ~80 px before the route drags me back. A 400-step
+        // frontier walk burned steps 41-399 doing exactly that at (159,184). After three times the whole
+        // trigger zone comes off the routing graph for this walk; after eight, the walk ends rather than
+        // spending the remaining budget on a conversation.
+        const tc = cellOf(r.meta.world[0], r.meta.world[1]);
+        const tk = tc[0] + ',' + tc[1];
+        const tn = (talkCount.get(tk) || 0) + 1;
+        talkCount.set(tk, tn);
+        if (tn === 3) {
+          for (let dy = -10; dy <= 10; dy++) for (let dx = -10; dx <= 10; dx++) {
+            const gx = tc[0] + dx, gy = tc[1] + dy;
+            if (gx < 1 || gy < 1 || gx >= GW - 1 || gy >= GH - 1) continue;
+            if (Math.abs(dx) <= 3 && Math.abs(dy) <= 3) continue;   // I am standing here: do not seal myself in
+            TALKER[gidx(gx, gy)] = 1;
+          }
+          console.log(`  ${tk} has opened a box ${tn} times: its 40 px trigger zone is off the route for this walk`);
+        }
+        if (tn >= 8) { console.log(`  parked on a talker at ${tk} through ${tn} dismissals: ending this walk instead of burning the rest of it`); saveRoom(r); return; }
         // Toriel re-opens the same line while I stand inside her trigger radius, so retrying the stuck
         // direction just re-freezes me: walk18 spent 400 steps on one sentence on repeat. Break contact
         // instead - but SIDESTEP first. walk40 measured the cost of reversing: her box opened every 4-5
