@@ -544,3 +544,26 @@ results. No engine internals, no outside walkthroughs.
   corridor leaving through the bottom edge of the frame** at world x ~+40..+130 - so
   `* Please continue south.` does apply here, and it points at that corridor. The ring-room claim in the
   previous bullet is withdrawn until I stand at the ring and test its south side myself.
+
+### The switch room's south corridor opens into Ruins - Entrance (run 1)
+- Walked it: at the switch room's west end the pale path turns south, and `hold down` produced
+  `transition 130` then a fade. The next frame was a room I have already named: the pale octagonal plateau,
+  two stair fans, the red hedge block and the yellow floor star - **Ruins - Entrance**, the save-point room
+  (`48_`). Entry is at the plateau's north edge, through a doorway in the room's north wall (`47_` shows the
+  corridor mouth from inside the switch room).
+- So `* Please continue south.` does lead somewhere: it leads back to the room where I saved. The two rooms
+  are stacked north/south, and the corridor is a one-tile-wide link at the switch room's south-west.
+- **The channel water is solid.** Standing at true adjacency west of the east channel's south water segment,
+  facing it, `hold right 900` moved 8 px and `motion.mjs` reported no shift of the channel ROI. This settles
+  the question left open by an earlier session ("nobody has ever stepped in it"): I stepped at it, and it
+  stopped me.
+- **The brick squares in the channels are walkable - I had the wrong row.** Three hand attempts at the east
+  channel (feet rows 355, 363, 413) were all refused, and I nearly wrote "the plank is solid". The frontier
+  walker crossed the west channel's square at world y 368 with 25-31 px steps. Row, not walkability.
+- Tooling gap this room exposed: the plateau's pale lavender **rgb(200,194,226)** matched no colour test, so
+  the ground under my own feet classified `OTH`, which is not walkable - `reach` flooded **1 cell** and
+  `walk frontier` declared a room I was standing inside "walked out". `classify()` now maps that colour to
+  `LIGHT`. First attempt used rgb(226,194,200): the raw grab is BGR-ordered, and `tmp_palette.mjs` prints the
+  order `classify()` actually sees, which is the tool to use before changing a colour test.
+- Evidence: `47_` the south corridor mouth at the switch room's west end; `48_` Ruins - Entrance seen on
+  entering through its north doorway, save star visible.

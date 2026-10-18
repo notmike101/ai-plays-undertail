@@ -106,6 +106,13 @@ function near(c, r, g, b, tol = 22) { return Math.abs(c[0] - r) <= tol && Math.a
 function classify(b, x, y) {
   const c = px(b, x, y);
   if (near(c, 185, 98, 185, 16)) return LIGHT;
+  // The Ruins - Entrance room's octagonal plateau and its stair fans are pale pinkish-lavender,
+  // measured rgb(200,194,226) over 14% of the frame. Nothing matched it (SPIKE fails because |r-b| is
+  // 26), so the ground I was standing on classified OTH, which is not in WALK: the flood from my own
+  // cell returned 1 cell and `walk frontier` declared the room I was standing in "walked out".
+  // (My first attempt wrote rgb(226,194,200): the raw grab is BGR, and `tmp_palette.mjs` reports the
+  // order slam's own classify() sees.)
+  if (near(c, 200, 194, 226, 16)) return LIGHT;
   if (near(c, 0, 0, 0, 40)) return VOID;
   if (near(c, 163, 73, 164, 22)) return FLOOR;
   // The dark mortar colour only occurs in raised brick walls: sampled over the platform
