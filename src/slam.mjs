@@ -974,12 +974,21 @@ function clearBox(r) {
 function settlePlayer(r, tries = 6) {
   for (let k = 0; k < tries; k++) {
     if (k) sleep(400);
-    const b = grab();
-    if (dark(b) > 0.6) return { fade: true };
-    const p = playerPosFrom(b);
-    if (p) return { p, b };
+    const s = settleFrame(grab());
+    if (s) return s;
   }
   return null;
+}
+
+// One frame's settle decision, pure so the selftest can drive it. Sprite first, darkness second.
+// The order used to be the other way round, so the near-black room south of Ruins - Entrance (over
+// 60% of the capture window under luma 45, with a lit arch and a lit sprite inside it) reported a
+// permanent transition: `nudge` crashed reading s.p and `walk` refused to start. Only a frame that
+// is both dark and sprite-less counts as a fade.
+function settleFrame(b) {
+  const p = playerPosFrom(b);
+  if (p) return { p, b };
+  return dark(b) > 0.6 ? { fade: true } : null;
 }
 
 // Fold one measured step into the room's bookkeeping. Pure so the selftest can drive it.
@@ -1009,8 +1018,12 @@ function step(r, dir, ms = 150) {
     sleep(160);
     b = grab();
   }
-  if (dark(b) > 0.6) return { fade: true };
-  const me = playerPosFrom(b);
+  // Same order as settleFrame: a room that is simply dark is not a fade in progress. The darkness
+  // test used to run first, so every nudge in the black room south of Ruins - Entrance reported a
+  // room change while I was standing still in it.
+  const st = settleFrame(b);
+  if (st && st.fade) return { fade: true };
+  const me = st && st.p;
   // My own screen motion is the only thing that separates "the camera scrolled" from "the
   // camera clamped at the room edge and I walked instead"; align() cannot tell the two apart
   // over flat featureless floor, and getting it wrong doubles my recorded position.
@@ -1539,7 +1552,22 @@ function selftest() {
     ok(hasMessageBox(f) === true, 'a drawn box did not register as a message box');
     ok(hasMessageBox(decoy) === false, 'a room with one pale edge registered as a message box');
   }
-  console.log('selftest ok: align anti-aliasing, transition classifier, speed model, seam cleanup, bfs arrival, frontier reach and cap, blocked marking, footprint evidence, body-width lanes, room identity, paint hysteresis, message box mask, flat grey decals, phantom motion, room reuse veto, talker routing');
+  {
+    // A dark ROOM is not a fade. The settle order used to test darkness before looking for my
+    // sprite, so the near-black room south of Ruins - Entrance reported a permanent room change:
+    // `nudge` crashed reading s.p and `walk` refused to move me inside a room I was standing in.
+    const black = Buffer.alloc(646 * 520 * 4);
+    for (let y = 250; y < 280; y++) for (let x = 295; x < 315; x++) {
+      const p = (y * 646 + x) * 4; black[p] = 60; black[p + 1] = 200; black[p + 2] = 250; black[p + 3] = 255;
+    }
+    ok(dark(black) > 0.6, 'fixture: the black room is not actually over 60% dark');
+    const lit = settleFrame(black);
+    ok(lit && lit.p && !lit.fade, 'a dark room holding my sprite was reported as a fade');
+    ok(lit && Math.abs(lit.p.x - 305) <= 2 && Math.abs(lit.p.y - 265) <= 2,
+      `my sprite in a black room located at ${lit && lit.p.x},${lit && lit.p.y}`);
+    ok(settleFrame(Buffer.alloc(646 * 520 * 4)).fade === true, 'a dark frame with no sprite in it stopped reading as a fade');
+  }
+  console.log('selftest ok: align anti-aliasing, transition classifier, speed model, seam cleanup, bfs arrival, frontier reach and cap, blocked marking, footprint evidence, body-width lanes, room identity, paint hysteresis, message box mask, flat grey decals, phantom motion, room reuse veto, talker routing, dark room is not a fade');
 }
 
 function walk(mode, steps) {
@@ -1906,6 +1934,7 @@ if (cmd === 'init') {
   const r = loadRoom();
   const s = settlePlayer(r);
   if (!s) console.log(`nudge ${dir}: sprite not found (fade or hidden by animation)`);
+  else if (s.fade) console.log(`nudge ${dir}: six frames, each more than 60% dark with no sprite in it`);
   else {
     r.meta.prevBuf = s.b;
     r.meta.me = [s.p.x, s.p.y];
