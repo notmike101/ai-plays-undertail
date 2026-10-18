@@ -316,3 +316,35 @@ node src/harness.mjs                                 # sidecar (ws on 127.0.0.1:
   **forever** and the next walk inherited `repairTried=1` and gave up at step 0; it is reset at the
   start of every walk. (No synthetic case for this one: a mock world that reproduces it would be
   testing the mock. It is verified live, on the room that triggered it.)
+
+### Flat grey decals are floor
+- The switch room's floor carries **grey decorative plates**: runs of the cobble grey (~34x17 px) with
+  dark notches at the corners, plus grey L/T trim pieces along the room's south-west edge. Same grey
+  family as the spike tiles, so the colour test called them `SPIKE` and `bodyFit` sealed off the room.
+  `flatGrey` is width >= height, which the plates pass and the trim fails, so `paint()`'s "is the whole
+  run flat?" test fell back to solid for the trim pixels.
+- Two-part fix. `classify()` now calls pale grey floor (not SPIKE) when the 3x3 neighbourhood is
+  dominated by pale floor/OTH and no dark outline touches it - so a decal interior never enters the run
+  test at all. And the room masks (`thinBrick`, `thinDark`, `flatGrey`, `BOX`) are computed in `loadRoom`
+  as well as in `paint`, which is the single reason `reach`/`probe`/`walk "to"` can be trusted at all:
+  they flood without painting, and `walk "to" 1211 460` was refusing a target **5 cells away** because
+  `FLAT`/`THIN` were empty for a command that never paints.
+
+### A blob found far away is not motion
+- Cornered between water, Toriel and a wall, three nudges reported 86, 210 and 0 px while consecutive
+  frames showed me in the identical pixel position. `motion.mjs match 290 200 350 270 60 hold right 900`
+  measured mean |d| **0.0** across the box containing my own sprite. The colour detector had locked onto a
+  brown patch across the room; `align` was right (no scroll) and `sm` was a lie, so `foldStep` teleported
+  my recorded position 210 px and `paint` stamped walked floor where I had never stood.
+- `blobStill(A, B, cx, cy)` measures the mean luma change in a 40x56 box around where my sprite was. If the
+  window did not scroll and that box did not change, the step is recorded as **no motion**, my last located
+  position is kept, and the step returns `phantom: true` so callers can tell it from a lost sprite.
+
+### A message box reads as a wall
+- The walk loop dismisses boxes; `nudge` did not, so three nudges against Toriel's note plaque reported
+  "blocked" and I nearly called a plaque a wall. `nudge` now re-grabs, and on `moved < 6` with a box on
+  screen it dismisses, waits and re-holds once.
+- `tools/xfire.mjs [play.mjs args...]` is the change detector for claims like "the switch did nothing":
+  raw grab, action, raw grab, then it prints the number of differing pixels and the bbox they cover. It is
+  what showed that pressing `z` at the yellow plaque-lever changed the box and my sprite but never the
+  handle nub inside the slot (crops at 10x of `300,130-350,180` before/after were pixel-identical).

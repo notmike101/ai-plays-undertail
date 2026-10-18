@@ -498,3 +498,41 @@ results. No engine internals, no outside walkthroughs.
   may call a cell unknown, never solid.** Only a step that physically failed may call a cell a wall.
   Every "solid" claim in this run that was based on colour alone has since been contradicted by walking
   - the leaf block, the channel water, and now these stones.
+
+### The room east of the ring: two channels, three yellow plaques, and Toriel is solid (run 1)
+- Shape, measured instead of eyeballed. Walking south 200 px moved Chara from screen y 240 to y 440 while
+  every piece of scenery kept its exact pixel position, so **this room is one screen tall and the camera
+  never scrolls vertically**. Walking west it scrolled 117 px and then clamped. The walkable band is about
+  **510 px wide by 300 px tall**; the south-west corner is walled off by a black L-shaped edge (`43_`).
+- In that band: **two water channels crossed by brick planks ~420 px apart**, each channel with a **framed
+  black water outlet at its north head**, three vines on the north brick wall, and a grey plaque low on the
+  west edge (`46_`). The shape claim is `45_`: after 200 px of southward walking I am standing against the
+  bottom wall with the switch still at the same screen height - the camera has not moved at all.
+
+- Two different plaque texts, both read at true adjacency: the low west-edge plaque says
+  `* Please continue south.` / `- TORIEL`, and the yellow slot-plaque on the north wall says
+  `* Please press this switch.` / `- TORIEL` (`41_`).
+- **The three yellow "switches" are plaques, not levers.** Each is a yellow frame around a black slot with a
+  handle nub inside it, annotated with chalk arrows. Pressing `z` at one printed the same two lines as the
+  wall plaque, and the handle **did not move**: the 10x crop of `300,130-350,180` before and after the press
+  is pixel-identical (`44_`). There is no mechanism in this room.
+- **RETRACTION (mine, this session):** I first reported "a room with three labelled switches, a stone-tiled
+  floor, and a lever whose handle sits in the middle". All three parts were wrong: the floor plates are flat
+  grey decals (floor, already established for the ring cobbles), the "switches" are note plaques, and the
+  "handle in the middle" is a static part of the plaque's drawing.
+- **RETRACTION: the plaque line is not a room signature.** South of me in this room is a wall at world y +96,
+  so `* Please continue south.` cannot describe it. It is an instruction, and the room it applies to is the
+  big ring room, whose southern way out I have still not taken - I turned east at the ring instead. This is
+  the first route direction Toriel has given me in words.
+- **Toriel is SOLID.** Three nudges (down/right/right) reported 86, 210 and 0 px while consecutive frames
+  showed me in the identical pixel position: I was boxed by water east, Toriel standing directly south, wall
+  north, and `motion.mjs match 290 200 350 270 60 hold right 900` measured mean |d| **0.0** across the box
+  containing my own sprite (`42_`). She does not step aside when I walk into her.
+- **The map grid is not trustworthy across a room change.** After `init` here and `walk frontier 500` the
+  grid spanned `786..1477 x 341..763` cells at 13.6% mapped with the ring room and this room painted as one
+  grid and a smeared seam between them; `walk frontier` then reported "the map looked finished" twice and
+  `reach` refused a target the grid calls solid. Until the seam is fixed the map is only used **within** one
+  room, and travel between rooms is done by hand with a shot after each leg.
+- Evidence (in `evidence/run1/`): 41 the plaque at the west edge; 42 me boxed between water, Toriel and the
+  wall; 43 the two channels, planks and framed outlets; 44 the plaque-lever with its handle unmoved after
+  pressing.

@@ -1790,7 +1790,16 @@ if (cmd === 'init') {
   else {
     r.meta.prevBuf = s.b;
     r.meta.me = [s.p.x, s.p.y];
-    const d = step(r, dir, ms);
+    let d = step(r, dir, ms);
+    // A message box freezes my movement, and a boxed frame reads as "no motion" - three nudges in
+    // the switch room reported 0 px against Toriel's note plaque before I checked the frame. The
+    // walk loop already dismisses boxes; nudge has to as well or it turns a plaque into a wall.
+    if (d.moved < 6 && hasMessageBox(grab())) {
+      console.log('a message box had me frozen: dismissed, re-holding');
+      clearBox();
+      await new Promise((res) => setTimeout(res, 100));
+      d = step(r, dir, ms);
+    }
     saveRoom(r);
     console.log(`nudge ${dir} ${ms}ms -> ` + JSON.stringify(d));
   }
