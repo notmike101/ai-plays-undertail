@@ -348,3 +348,18 @@ node src/harness.mjs                                 # sidecar (ws on 127.0.0.1:
   raw grab, action, raw grab, then it prints the number of differing pixels and the bbox they cover. It is
   what showed that pressing `z` at the yellow plaque-lever changed the box and my sprite but never the
   handle nub inside the slot (crops at 10x of `300,130-350,180` before/after were pixel-identical).
+
+### Reusing a room is a claim about pixels, not about landmark counts
+- `matchRoom` reported "that is room 0 again (112 landmarks line up)" on transitions between rooms I had
+  never seen, twice in one walk. The signature is scenery offsets relative to my own cell, which is
+  camera-proof - but the Ruins reuse the same brick band, pale floor and void everywhere, so a translated
+  alignment of those offsets clears the 55% majority test for a different room. Trusting it welds rooms into
+  one grid (`786..1477 x 341..763` cells, 1324x932 px, smeared seam) and the map then reports
+  `routable from me 2` while holding 117434 walkable cells.
+- `frameAgreement(r, b, cam)` votes each visible cell's class the way `paint()` does and compares it with the
+  stored cell: `UNKNOWN`/`BLOCKED` cannot contradict, my body/robe/message-box cells are skipped, the two
+  pale floor classes count as one surface. The transition handler settles the incoming frame **before**
+  deciding the match, then refuses the reuse below 70% agreement across at least 300 known cells and mints a
+  new room instead. Under 300 known cells there is nothing to contradict, so landmarks still decide.
+- Ordering mattered: the frame used to be grabbed after the reuse decision, so the pixels could not be part
+  of the test.
