@@ -392,6 +392,37 @@ function paint(r, b, cam) {
   flatGrey(r);
 }
 
+// How much of a candidate room's stored paint does this frame actually confirm? Ruins rooms are built
+// from the same brick band, pale floor and black void, so landmark sets alone weld neighbouring rooms
+// together: the walker logged "ROOM CHANGE - that is room 0 again (112 landmarks line up)" while the grid
+// grew 466 cells tall across four rooms. A reused grid then paints a new room on top of an old one and the
+// map becomes useless. So a reuse must be confirmed by pixels: vote the class of every visible cell the way
+// paint() does and compare it with the stored cell. UNKNOWN and BLOCKED cells cannot contradict anything;
+// the two pale floor classes are one surface; masked cells (my body, a message box) are skipped.
+function frameAgreement(r, b, cam) {
+  const mask = paintMask(b);
+  const inside = (x, y) => mask.some(([x0, x1, y0, y1]) => x >= x0 && x <= x1 && y >= y0 && y <= y1);
+  let ok = 0, n = 0;
+  for (let y = CY0; y <= CY1 - CELL; y += CELL) {
+    for (let x = CX0; x <= CX1 - CELL; x += CELL) {
+      const gx = GOX + Math.round((x - cam[0]) / CELL), gy = GOY + Math.round((y - cam[1]) / CELL);
+      if (gx < 0 || gy < 0 || gx >= GW || gy >= GH) continue;
+      const stored = r.grid[gidx(gx, gy)];
+      if (stored === UNKNOWN || stored === BLOCKED || inside(x, y)) continue;
+      let vote = {}, top = OTH, tn = 0;
+      for (let dy = -2; dy < 2; dy++) for (let dx = -2; dx < 2; dx++) {
+        const c = classify(b, x + dx, y + dy);
+        vote[c] = (vote[c] || 0) + 1;
+        if (vote[c] > tn) { tn = vote[c]; top = c; }
+      }
+      n++;
+      if (top === stored) ok++;
+      else if ((top === FLOOR || top === LIGHT) && (stored === FLOOR || stored === LIGHT)) ok++;
+    }
+  }
+  return { agree: n ? ok / n : 0, cells: n };
+}
+
 // The floor tiles are drawn with 1-2 px black seams, and black is exactly what VOID means
 // here (the colour of a real pit or of the letterbox outside the room). Left in the grid the
 // seams slice every corridor into pockets: bodyFit refuses a cell with known solid within 3
@@ -1250,6 +1281,25 @@ function selftest() {
     ok(!matchRoom(landmarks(rC, cellOf(0, 0)), [{ room: 3, anchor: cellA, land: landA, total: landA.length }]), 'a different room matched room 3');
   }
   {
+    // ...but landmarks alone are not enough either. Every Ruins room is built from the same brick band,
+    // pale floor and black void, so matchRoom happily reported "ROOM CHANGE - that is room 0 again
+    // (112 landmarks line up)" while the walker crossed four rooms and the grid grew 466 cells tall,
+    // painting each new room on top of the old one. Reusing a room must be confirmed by the frame's own
+    // pixels against the stored cells.
+    const b = Buffer.alloc(646 * 520 * 4);
+    const put = (x, y, rgb) => { const p = (y * 646 + x) * 4; b[p] = rgb[0]; b[p + 1] = rgb[1]; b[p + 2] = rgb[2]; b[p + 3] = 255; };
+    for (let y = 0; y < 520; y++) for (let x = 0; x < 646; x++) put(x, y, [163, 73, 164]);
+    for (let y = 60; y < 160; y++) for (let x = 60; x < 560; x++) put(x, y, [132, 53, 125]);   // a brick band
+    const rA = { grid: new Uint8Array(GW * GH), meta: { cam: [0, 0], trail: [] } };
+    paint(rA, b, [0, 0]);
+    const good = frameAgreement(rA, b, [0, 0]);
+    ok(good.cells > 300 && good.agree > 0.95, `a grid painted from this frame disagreed with it (${good.agree.toFixed(2)} over ${good.cells} cells)`);
+    const rB = { grid: Uint8Array.from(rA.grid), meta: rA.meta };
+    for (let gy = GOY - 10; gy <= GOY + 250; gy++) for (let gx = GOX - 10; gx <= GOX + 330; gx++) rB.grid[gidx(gx, gy)] = VOID;
+    const bad = frameAgreement(rB, b, [0, 0]);
+    ok(bad.agree < 0.5, `a grid contradicted by everything in view still passed the veto (${bad.agree.toFixed(2)})`);
+  }
+  {
     // The floor tiles' 1-2 px black seams classify as VOID, the same value a real pit gets, so
     // they were painted as pits: they broke the scenery signature and, while the clearance rule
     // still counted black as solid, they cut corridors my body could not cross.
@@ -1452,7 +1502,7 @@ function selftest() {
     for (let x = 100; x <= 400; x++) { const p = (200 * CW + x) * 4; decoy[p] = decoy[p + 1] = decoy[p + 2] = 255; }
     ok(boxRect(decoy) === null, 'a single pale edge was mistaken for a message box');
   }
-  console.log('selftest ok: align anti-aliasing, transition classifier, speed model, seam cleanup, bfs arrival, frontier reach and cap, blocked marking, footprint evidence, body-width lanes, room identity, paint hysteresis, message box mask, flat grey decals, phantom motion');
+  console.log('selftest ok: align anti-aliasing, transition classifier, speed model, seam cleanup, bfs arrival, frontier reach and cap, blocked marking, footprint evidence, body-width lanes, room identity, paint hysteresis, message box mask, flat grey decals, phantom motion, room reuse veto');
 }
 
 function walk(mode, steps) {
@@ -1629,33 +1679,41 @@ function walk(mode, steps) {
       saveRoom(r);                                  // refreshes the signature of the room I am leaving
       const land = landmarks(r, cellOf(r.meta.world[0], r.meta.world[1]));
       const hit = matchRoom(land, roomCatalog());
-      let back = null;
-      if (hit) {
-        r.s.room = hit.room;
-        fs.writeFileSync(`${DIR}/current.json`, JSON.stringify(r.s));
-        const p = `${DIR}/room${hit.room}`;
-        r.grid = fs.existsSync(p + '.bin') ? new Uint8Array(fs.readFileSync(p + '.bin')) : new Uint8Array(GW * GH);
-        const m = JSON.parse(fs.readFileSync(p + '.json'));
-        back = [m.anchor[0] + hit.t[0], m.anchor[1] + hit.t[1]];   // where the landmarks say I landed
-        r.meta = { cam: [0, 0], me: r.meta.me, world: [(back[0] - GOX) * CELL, (back[1] - GOY) * CELL], trail: m.trail || [] };
-        console.log(`step ${i}: ROOM CHANGE - that is room ${hit.room} again (${hit.matches} landmarks line up)`);
-      } else {
-        r.s.room += 1;
-        fs.writeFileSync(`${DIR}/current.json`, JSON.stringify(r.s));
-        r.grid = new Uint8Array(GW * GH);
-        r.meta = { cam: [0, 0], me: r.meta.me, world: r.meta.world, trail: [] };
-        console.log(`step ${i}: ROOM CHANGE (align cost ${res.transition.toFixed(1)}) -> now mapping room ${r.s.room}`);
-      }
-      // a room change fades to black and reloads; that takes longer than a few grabs, and
-      // giving up here would strand me in a room I never painted
+      // A room change fades to black and reloads; that takes longer than a few grabs, and giving up here
+      // would strand me in a room I never painted. The settled frame has to be grabbed BEFORE deciding
+      // whether the landmark match is real, because the test of that match is the frame's own pixels.
       let b = null;
       for (let k = 0; k < 24 && !b; k++) { sleep(500); const g = grab(); if (!dark(g) && playerPosFrom(g)) b = g; }
       if (!b) { console.log('frame never settled after the transition; mapping it anyway'); b = grab(); if (!playerPosFrom(b)) break; }
       const me = playerPosFrom(b);
-      // a reused grid already knows which cell I landed on, so the camera follows from there;
-      // a fresh grid gets anchored at my feet
-      if (back) r.meta.cam = [r.meta.world[0] - me.x, r.meta.world[1] - me.y - FEET];
-      else r.meta.world = [me.x, me.y + FEET];
+      let back = null;
+      if (hit) {
+        const path = `${DIR}/room${hit.room}`;
+        const cand = fs.existsSync(path + '.bin') ? new Uint8Array(fs.readFileSync(path + '.bin')) : new Uint8Array(GW * GH);
+        const m = JSON.parse(fs.readFileSync(path + '.json'));
+        back = [m.anchor[0] + hit.t[0], m.anchor[1] + hit.t[1]];   // where the landmarks say I landed
+        const world = [(back[0] - GOX) * CELL, (back[1] - GOY) * CELL];
+        const cam = [world[0] - me.x, world[1] - me.y - FEET];
+        const { agree, cells } = frameAgreement({ grid: cand }, b, cam);
+        // A candidate with hardly any paint cannot contradict anything, so landmarks alone still win.
+        if (cells >= 300 && agree < 0.7) {
+          console.log(`step ${i}: landmarks claimed room ${hit.room} (${hit.matches} landmarks) but only ${(agree * 100).toFixed(0)}% of its ${cells} stored cells agree with this frame - a NEW room`);
+          back = null;
+        } else {
+          r.s.room = hit.room;
+          fs.writeFileSync(`${DIR}/current.json`, JSON.stringify(r.s));
+          r.grid = cand;
+          r.meta = { cam, me: [me.x, me.y], world, trail: m.trail || [] };
+          console.log(`step ${i}: ROOM CHANGE - that is room ${hit.room} again (${hit.matches} landmarks, ${(agree * 100).toFixed(0)}% of ${cells} stored cells confirmed)`);
+        }
+      }
+      if (!back) {
+        r.s.room += 1;
+        fs.writeFileSync(`${DIR}/current.json`, JSON.stringify(r.s));
+        r.grid = new Uint8Array(GW * GH);
+        r.meta = { cam: [0, 0], me: [me.x, me.y], world: [me.x, me.y + FEET], trail: [] };
+        console.log(`step ${i}: ROOM CHANGE (align cost ${res.transition.toFixed(1)}) -> now mapping room ${r.s.room}`);
+      }
       r.meta.prevBuf = b; r.meta.me = [me.x, me.y];
       paint(r, b, r.meta.cam); markRobe(r, b, r.meta.cam); markFeet(r, r.meta.cam, me);
       if (mode === 'frontier') {
